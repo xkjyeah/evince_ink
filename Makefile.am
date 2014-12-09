@@ -7,7 +7,8 @@ SUBDIRS = \
 	backend \
 	libview \
 	libmisc \
-	properties
+	properties \
+	libdocument/tests
 
 if ENABLE_VIEWER
 SUBDIRS += shell

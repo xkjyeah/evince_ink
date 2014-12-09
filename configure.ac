@@ -892,6 +892,7 @@ help/reference/libview/Makefile
 help/reference/libview/version.xml
 help/reference/shell/Makefile
 help/reference/shell/version.xml
+libdocument/tests/Makefile
 libdocument/Makefile
 libdocument/ev-version.h
 libmisc/Makefile

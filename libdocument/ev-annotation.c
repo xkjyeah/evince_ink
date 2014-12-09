@@ -24,6 +24,7 @@
 #include "ev-annotation.h"
 #include "ev-document-misc.h"
 #include "ev-document-type-builtins.h"
+#include "ev-mapping-tree.h"
 
 struct _EvAnnotation {
 	GObject          parent;
@@ -76,8 +77,26 @@ struct _EvAnnotationTextMarkupClass {
 	EvAnnotationClass parent_class;
 };
 
+/* This struct is proxy to the cairo_operator_t */
+struct _EvAnnotationInk {
+	EvAnnotation parent;
+
+	/* data structures to store the line */
+	EvAnnotationInkOperator operator;
+	GArray *widths; /* array of doubles */
+	double width;	/* int for single width -- incompatible with widths. Either must be set to 0 */
+	GArray *paths;	/* array of paths */
+
+    /* for determining hit */
+    EvMappingTree *quadtree;
+};
+struct _EvAnnotationInkClass {
+	EvAnnotationClass parent_class;
+};
+
 static void ev_annotation_markup_default_init           (EvAnnotationMarkupInterface *iface);
 static void ev_annotation_text_markup_iface_init        (EvAnnotationMarkupInterface *iface);
+static void ev_annotation_ink_markup_iface_init        (EvAnnotationMarkupInterface *iface);
 static void ev_annotation_attachment_markup_iface_init  (EvAnnotationMarkupInterface *iface);
 static void ev_annotation_text_markup_markup_iface_init (EvAnnotationMarkupInterface *iface);
 
@@ -118,6 +137,14 @@ enum {
         PROP_TEXT_MARKUP_TYPE = PROP_MARKUP_POPUP_IS_OPEN + 1
 };
 
+/* EvAnnotationInk */
+enum {
+        PROP_INK_PATHS = PROP_MARKUP_POPUP_IS_OPEN + 1,
+	PROP_INK_WIDTH,
+	PROP_INK_WIDTHS,
+	PROP_INK_OPERATOR
+};
+
 G_DEFINE_ABSTRACT_TYPE (EvAnnotation, ev_annotation, G_TYPE_OBJECT)
 G_DEFINE_INTERFACE (EvAnnotationMarkup, ev_annotation_markup, EV_TYPE_ANNOTATION)
 G_DEFINE_TYPE_WITH_CODE (EvAnnotationText, ev_annotation_text, EV_TYPE_ANNOTATION,
@@ -135,6 +162,11 @@ G_DEFINE_TYPE_WITH_CODE (EvAnnotationTextMarkup, ev_annotation_text_markup, EV_T
 		 G_IMPLEMENT_INTERFACE (EV_TYPE_ANNOTATION_MARKUP,
 					ev_annotation_text_markup_markup_iface_init);
 	 });
+G_DEFINE_TYPE_WITH_CODE (EvAnnotationInk, ev_annotation_ink, EV_TYPE_ANNOTATION,
+    {
+        G_IMPLEMENT_INTERFACE (EV_TYPE_ANNOTATION_MARKUP,
+                    ev_annotation_ink_markup_iface_init);
+    });
 
 /* EvAnnotation */
 static void
@@ -1360,6 +1392,15 @@ ev_annotation_text_markup_underline_new (EvPage *page)
         return annot;
 }
 
+EvAnnotation *
+ev_annotation_ink_new (EvPage *page)
+{
+        EvAnnotation *annot = EV_ANNOTATION (g_object_new (EV_TYPE_ANNOTATION_INK,
+                                                           "page", page,
+                                                           NULL));
+	return annot;
+}
+
 EvAnnotationTextMarkupType
 ev_annotation_text_markup_get_markup_type (EvAnnotationTextMarkup *annot)
 {
@@ -1382,3 +1423,341 @@ ev_annotation_text_markup_set_markup_type (EvAnnotationTextMarkup    *annot,
 
         return TRUE;
 }
+
+/* EvAnnotationInk */
+static void
+ev_annotation_ink_init (EvAnnotationInk *annot)
+{
+	EV_ANNOTATION (annot)->type = EV_ANNOTATION_TYPE_INK;
+    annot->widths = NULL;
+    annot->paths = NULL;
+    annot->quadtree = NULL;
+}
+
+static void
+ev_annotation_ink_finalize (GObject *object)
+{
+	EvAnnotationInk *annot = EV_ANNOTATION_INK (object);
+    int i;
+
+	if (annot->widths) {
+		g_array_unref (annot->widths);
+		annot->widths = NULL;
+	}
+	if (annot->paths) {
+        for (i=0; i<annot->paths->len; i++) {
+            g_array_unref(g_array_index(annot->paths, GArray*, i));
+        }
+        g_array_unref(annot->paths);
+		annot->paths = NULL;
+	}
+
+	G_OBJECT_CLASS (ev_annotation_ink_parent_class)->finalize (object);
+}
+
+
+static void
+ev_annotation_ink_set_property (GObject      *object,
+				 guint         prop_id,
+				 const GValue *value,
+				 GParamSpec   *pspec)
+{
+	EvAnnotationInk *annot = EV_ANNOTATION_INK (object);
+
+	if (prop_id < PROP_INK_PATHS) {
+		ev_annotation_markup_set_property (object, prop_id, value, pspec);
+		return;
+	}
+
+	switch (prop_id) {
+	case PROP_INK_PATHS:
+		ev_annotation_ink_set_paths (annot, g_value_get_pointer(value));
+		break;
+	case PROP_INK_WIDTH: {
+		double width = g_value_get_double(value);
+		ev_annotation_ink_set_width (annot, width);
+		}
+		break;
+	case PROP_INK_WIDTHS: {
+		GArray *widths = g_value_get_pointer(value);
+		ev_annotation_ink_set_widths (annot, widths);
+		}
+		break;
+	case PROP_INK_OPERATOR:
+		ev_annotation_ink_set_operator (annot, g_value_get_enum(value));
+		break;
+	default:
+		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+	}
+}
+
+
+void
+ev_annotation_ink_set_widths (	EvAnnotationInk *annot,
+				GArray *widths )
+{
+	annot->width = 0;
+	if (annot->widths) {
+		g_array_unref(annot->widths);
+	}
+	annot->widths = widths;
+	g_array_ref(widths);
+}
+
+
+void
+ev_annotation_ink_set_width (	EvAnnotationInk *annot,
+				int width )
+{
+	annot->width = width;
+	if (annot->widths) {
+		g_array_unref(annot->widths);
+		annot->widths = NULL;
+	}
+}
+
+
+void
+ev_annotation_ink_set_operator (EvAnnotationInk *annot,
+				int op)
+{
+	annot->operator = (EvAnnotationInkOperator)op;
+}
+
+static gdouble squared_distance(gdouble x, gdouble y)
+{
+    return x*x + y*y;
+}
+
+static gboolean
+is_on_line(gpointer a, gdouble x, gdouble y, gpointer data)
+{
+    EvAnnotationInk *annot = EV_ANNOTATION_INK(data);
+    EvRectangle *rect = (EvRectangle*) a;
+
+    gdouble halfwidth = annot->width * 0.5;
+    gdouble halfwidthsq = halfwidth * halfwidth;
+
+    gdouble sq_line_length = squared_distance(rect->x2 - rect->x1, rect->y2 - rect->y1);
+
+    /**
+     * if projection lies on line segment
+     *      ensure that perpendicular distance is not more than half-width
+     *
+     * else
+     *      ensure that distance to one of the edge points is at
+     *      most half-width
+     *      */
+    {
+        gdouble xa,ya, xb,yb;
+
+        xa = x - rect->x1;
+        xb = rect->x2 - rect->x1;
+
+        ya = y - rect->y1;
+        yb = rect->y2 - rect->y1;
+
+        gdouble projection = xa * xb + ya * yb;
+
+        if ( projection < sq_line_length )
+        {
+            gdouble perpendic_distance = squared_distance(xa, ya) - projection*projection/sq_line_length;
+            if ( perpendic_distance <= halfwidthsq  ) {
+                return TRUE;
+            }
+        }
+    }
+    {
+        gdouble sqdist1, sqdist2;
+        sqdist1 = squared_distance(x - rect->x1, y - rect->y1);
+        sqdist2 = squared_distance(x - rect->x2, y - rect->y2);
+
+        if (sqdist1 <= halfwidthsq || sqdist2 <= halfwidthsq) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+void
+ev_annotation_ink_get_paths(	EvAnnotationInk *annot,
+				GArray **paths)
+{
+    *paths = annot->paths;   
+}
+
+void
+ev_annotation_ink_set_paths(	EvAnnotationInk *annot,
+				GArray *paths)
+{
+	int i;
+    
+    // Copy the path into the array 
+    if (annot->paths) {
+        for (i=0; i<annot->paths->len; i++) {
+            g_array_unref(g_array_index(annot->paths, GArray*, i));
+        }
+        g_array_unref(annot->paths);
+    }
+
+	annot->paths = paths;
+
+	for (i=0; i<paths->len; i++) {
+		g_array_ref(g_array_index(paths, GArray*, i));
+	}
+	g_array_ref(paths);
+
+    // Find the extents of the annotation
+    gboolean first_time = FALSE;
+    gdouble min_x = 0, max_x = 1, min_y = 1, max_y = 1;
+	for (i=0; i<paths->len; i++) {
+        GArray *path = g_array_index(paths, GArray*, i);
+        int j;
+        for (j=0; j<path->len; j+=2) {
+            if (first_time) {
+                max_x = min_x = g_array_index(path, gdouble, j);
+                max_y = min_y = g_array_index(path, gdouble, j + 1);
+                first_time = FALSE;
+            }
+            
+            min_x = MIN(min_x, g_array_index(path, gdouble, j));
+            min_y = MIN(min_y, g_array_index(path, gdouble, j + 1));
+            max_x = MAX(max_x, g_array_index(path, gdouble, j));
+            max_y = MAX(max_y, g_array_index(path, gdouble, j + 1));
+        }
+	}
+
+
+    // Copy the path into the quadtree data structure
+    if (annot->quadtree) {
+        ev_mapping_tree_unref(annot->quadtree);
+    }
+    EvRectangle extents;
+    extents.x1 = min_x;
+    extents.y1 = min_y;
+    extents.x2 = max_x;
+    extents.y2 = max_y;
+    annot->quadtree = ev_mapping_tree_new(0, extents, g_free);
+
+	for (i=0; i<paths->len; i++) {
+        GArray *path = g_array_index(annot->paths, GArray*, i);
+        int j;
+        gdouble xp, yp;
+        for (j=0; j<path->len; j += 2) {
+            gdouble x, y;
+            x = g_array_index(path, gdouble, j);
+            y = g_array_index(path, gdouble, j + 1);
+
+            if (j > 0) {
+                EvRectangle rect;
+                EvRectangle *line = g_malloc(sizeof(EvRectangle));
+                gdouble halfwidth = annot->width * 0.5;
+
+                rect.x1 = MIN(x, xp) - halfwidth;
+                rect.x2 = MAX(x, xp) + halfwidth;
+                rect.y1 = MIN(y, yp) - halfwidth;
+                rect.y2 = MAX(y, yp) + halfwidth;
+
+                line->x1 = xp;
+                line->x2 = x;
+                line->y1 = yp;
+                line->y2 = y;
+
+                ev_mapping_tree_add(annot->quadtree,
+                            line, rect,
+                            is_on_line, annot);
+            }
+
+            xp = x; yp = y;
+        }
+	}
+}
+
+gboolean
+ev_annotation_ink_is_hit (EvAnnotationInk *annot, gdouble x, gdouble y)
+{
+    EvAnnotationMarkup *markup = EV_ANNOTATION_MARKUP(annot);
+    EvAnnotationMarkupProps *props = ev_annotation_markup_get_properties(markup);
+    EvRectangle *rect = &props->rectangle;
+
+    gpointer hit_item = ev_mapping_tree_get(annot->quadtree, x, y);
+
+    return (hit_item != 0);
+}
+
+static void
+ev_annotation_ink_get_property (GObject    *object,
+				 guint       prop_id,
+				 GValue     *value,
+				 GParamSpec *pspec)
+{
+	EvAnnotationInk *annot = EV_ANNOTATION_INK (object);
+
+	if (prop_id < PROP_ATTACHMENT_ATTACHMENT) {
+		ev_annotation_markup_get_property (object, prop_id, value, pspec);
+		return;
+	}
+
+	switch (prop_id) {
+	case PROP_INK_PATHS:
+		g_value_set_pointer (value, annot->paths);
+		break;
+	case PROP_INK_WIDTH:
+		g_value_set_double (value, annot->width);
+		break;
+	case PROP_INK_WIDTHS:
+		g_value_set_pointer (value, annot->widths);
+		break;
+	case PROP_INK_OPERATOR:
+		g_value_set_enum (value, annot->operator);
+		break;
+	default:
+		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+	}
+}
+
+static void
+ev_annotation_ink_markup_iface_init (EvAnnotationMarkupInterface *iface)
+{
+}
+
+static void
+ev_annotation_ink_class_init (EvAnnotationInkClass *klass)
+{
+	GObjectClass *g_object_class = G_OBJECT_CLASS (klass);
+
+	ev_annotation_markup_class_install_properties (g_object_class);
+
+	g_object_class->finalize = ev_annotation_ink_finalize;
+	g_object_class->set_property = ev_annotation_ink_set_property;
+	g_object_class->get_property = ev_annotation_ink_get_property;
+
+	// TODO:
+	g_object_class_install_property (g_object_class,
+					 PROP_INK_WIDTHS,
+					 g_param_spec_enum ("operator",
+							    "Operator",
+							    "Blending mode",
+							    EV_TYPE_ANNOTATION_INK_OPERATOR,
+							    EV_ANNOTATION_INK_OPERATOR_OVER,
+							    G_PARAM_READWRITE |
+                                                            G_PARAM_STATIC_STRINGS));
+	g_object_class_install_property (g_object_class,
+					 PROP_INK_WIDTHS,
+					 g_param_spec_pointer ("widths",
+							       "Widths",
+							       "The width of each segment",
+							       G_PARAM_READWRITE |
+                                                               G_PARAM_STATIC_STRINGS));
+	g_object_class_install_property (g_object_class,
+					 PROP_INK_WIDTH,
+					 g_param_spec_double ("width",
+							       "Width",
+							       "The width of the line (for constant width)",
+							       0, 1e10,
+                                   1,
+							       G_PARAM_READWRITE |
+                                                               G_PARAM_STATIC_STRINGS));
+}
+
+

@@ -3082,8 +3082,56 @@ get_annotation_mapping_at_location (EvView *view,
 
 	annotations_mapping = ev_page_cache_get_annot_mapping (view->page_cache, *page);
 
-	if (annotations_mapping)
-		return ev_mapping_list_get (annotations_mapping, x_new, y_new);
+	if (annotations_mapping) {
+        EvMapping *annotation_mapping = ev_mapping_list_get(annotations_mapping, x_new, y_new);
+        /** FIXME: annotation-specific implementation to test the quadtree
+         *  
+         *  Quadtree should be used for *all* elements instead of just
+         *  Ink annotations
+         *
+         * **/
+
+        if (!annotation_mapping)
+            return NULL;
+        
+        EvAnnotation *annot = annotation_mapping->data;
+
+        if ( ! EV_IS_ANNOTATION_INK(annot) ) {
+            return annotation_mapping;
+        }
+        else { // Determine if x,y lies on annotation drawing
+            // debug printf
+            //
+            if (FALSE) {
+                EvAnnotationInk *ink = EV_ANNOTATION_INK(annot);
+                fprintf(stderr, " Mouse (x,y) = (%i, %i)\n", x_new, y_new);
+                fprintf(stderr, " Annotation segments:");
+                
+                GArray *paths;
+                ev_annotation_ink_get_paths(ink, &paths);
+                int i,j;
+                for (i=0;i<paths->len; i++) {
+                    GArray *path = g_array_index(paths, GArray*, i);
+                    fprintf(stderr, "   Segment %i\n    ", i);
+                    for (j=0; j<path->len; j+=2)
+                        fprintf(stderr, "(%lf, %lf) ", g_array_index(path, gdouble, j), g_array_index(path, gdouble, j+1));
+                    fprintf(stderr, "\n");
+                }
+            }
+            
+            
+            if (ev_annotation_ink_is_hit( EV_ANNOTATION_INK(annot), x_new, y_new )) {
+                return annotation_mapping;
+            }
+            else {
+                return NULL;
+            }
+        }
+
+        return NULL;
+
+		//return ev_mapping_list_get (annotations_mapping, x_new, y_new);
+    }
 
 	return NULL;
 }
@@ -3260,6 +3308,8 @@ ev_view_begin_add_annotation (EvView          *view,
 
 	view->adding_annot = TRUE;
 	view->adding_annot_type = annot_type;
+
+    // TODO: a "pen" cursor for Ink annotations
 	ev_view_set_cursor (view, EV_VIEW_CURSOR_ADD);
 }
 
@@ -5275,6 +5325,7 @@ ev_view_button_release_event (GtkWidget      *widget,
 
 	view->drag_info.in_drag = FALSE;
 
+    // TODO: if adding an INK... do something else
 	if (view->adding_annot && view->pressed_button == 1) {
 		view->adding_annot = FALSE;
 		ev_view_handle_cursor_over_xy (view, event->x, event->y);

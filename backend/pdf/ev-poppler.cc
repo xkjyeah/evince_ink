@@ -2881,6 +2881,51 @@ ev_annot_from_poppler_annot (PopplerAnnot *poppler_annot,
 	        case POPPLER_ANNOT_UNDERLINE:
 			ev_annot = ev_annotation_text_markup_underline_new (page);
 			break;
+		case POPPLER_ANNOT_INK: {
+			ev_annot = ev_annotation_ink_new (page);
+
+            EvAnnotationInk *ev_ink = EV_ANNOTATION_INK(ev_annot);
+			PopplerAnnotInk *a_ink = POPPLER_ANNOT_INK(poppler_annot);
+			PopplerAnnotPaths *paths = poppler_annot_ink_get_ink_list(a_ink);
+            double height, i, j;
+
+            poppler_page_get_size (POPPLER_PAGE (page->backend_page), NULL, &height);
+			GArray *arr_paths = g_array_new(0, 0, sizeof(GArray*));
+
+			/* Transfer Poppler data structures to EvAnnotationInk */
+			/* Ignore the colour and operator parameters for now */
+
+            for (i=0;
+                i < poppler_annot_paths_get_length(paths);
+                i++) {
+
+                gpointer path = poppler_annot_paths_index(paths, i);
+                GArray *arr_path = g_array_new(0, 0, sizeof(double));
+
+                for (j=0; j < poppler_annot_path_get_length(path); j++) {
+                    double x, y;
+
+                    poppler_annot_path_index(path, j, &x, &y);
+                    y = height - y;
+
+                    g_array_append_val(arr_path, x);
+                    g_array_append_val(arr_path, y);
+                }
+
+                g_array_append_val(arr_paths, arr_path);
+            }
+
+            ev_annotation_ink_set_paths(ev_ink, arr_paths); // adds ref
+			ev_annotation_ink_set_operator(ev_ink, EV_ANNOTATION_INK_OPERATOR_OVER);
+			ev_annotation_ink_set_width(ev_ink, 1);
+
+			/* Remove one reference from the paths... */
+			for (int i=0; i<arr_paths->len; i++) {
+				g_array_unref(g_array_index(arr_paths, GArray*, i));
+			}
+			g_array_unref(arr_paths);
+		}
+			break;
 	        case POPPLER_ANNOT_LINK:
 	        case POPPLER_ANNOT_WIDGET:
 			/* Ignore link and widgets annots since they are already handled */

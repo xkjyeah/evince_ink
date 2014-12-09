@@ -50,6 +50,14 @@ G_BEGIN_DECLS
 #define EV_IS_ANNOTATION_MARKUP_IFACE(k)        (G_TYPE_CHECK_CLASS_TYPE ((k), EV_TYPE_ANNOTATION_MARKUP))
 #define EV_ANNOTATION_MARKUP_GET_IFACE(inst)    (G_TYPE_INSTANCE_GET_INTERFACE ((inst), EV_TYPE_ANNOTATION_MARKUP, EvAnnotationMarkupInterface))
 
+/* EvAnnotationInk */
+#define EV_TYPE_ANNOTATION_INK                 (ev_annotation_ink_get_type())
+#define EV_ANNOTATION_INK(object)              (G_TYPE_CHECK_INSTANCE_CAST((object), EV_TYPE_ANNOTATION_INK, EvAnnotationInk))
+#define EV_ANNOTATION_INK_CLASS(klass)         (G_TYPE_CHECK_CLASS_CAST((klass), EV_TYPE_ANNOTATION_INK, EvAnnotationInkClass))
+#define EV_IS_ANNOTATION_INK(object)           (G_TYPE_CHECK_INSTANCE_TYPE((object), EV_TYPE_ANNOTATION_INK))
+#define EV_IS_ANNOTATION_INK_CLASS(klass)      (G_TYPE_CHECK_CLASS_TYPE((klass), EV_TYPE_ANNOTATION_INK))
+#define EV_ANNOTATION_INK_GET_CLASS(object)    (G_TYPE_INSTANCE_GET_CLASS((object), EV_TYPE_ANNOTATION_INK, EvAnnotationInkClass))
+
 /* EvAnnotationText */
 #define EV_TYPE_ANNOTATION_TEXT                 (ev_annotation_text_get_type())
 #define EV_ANNOTATION_TEXT(object)              (G_TYPE_CHECK_INSTANCE_CAST((object), EV_TYPE_ANNOTATION_TEXT, EvAnnotationText))
@@ -89,11 +97,15 @@ typedef struct _EvAnnotationAttachmentClass EvAnnotationAttachmentClass;
 typedef struct _EvAnnotationTextMarkup      EvAnnotationTextMarkup;
 typedef struct _EvAnnotationTextMarkupClass EvAnnotationTextMarkupClass;
 
+typedef struct _EvAnnotationInk      EvAnnotationInk;
+typedef struct _EvAnnotationInkClass EvAnnotationInkClass;
+
 typedef enum {
 	EV_ANNOTATION_TYPE_UNKNOWN,
 	EV_ANNOTATION_TYPE_TEXT,
 	EV_ANNOTATION_TYPE_ATTACHMENT,
-	EV_ANNOTATION_TYPE_TEXT_MARKUP
+	EV_ANNOTATION_TYPE_TEXT_MARKUP,
+	EV_ANNOTATION_TYPE_INK
 } EvAnnotationType;
 
 typedef enum {
@@ -114,6 +126,11 @@ typedef enum {
         EV_ANNOTATION_TEXT_MARKUP_STRIKE_OUT,
         EV_ANNOTATION_TEXT_MARKUP_UNDERLINE
 } EvAnnotationTextMarkupType;
+
+typedef enum {
+	EV_ANNOTATION_INK_OPERATOR_OVER,
+	EV_ANNOTATION_INK_OPERATOR_MULTIPLY
+} EvAnnotationInkOperator;
 
 /* EvAnnotation */
 GType                ev_annotation_get_type                  (void) G_GNUC_CONST;
@@ -190,6 +207,27 @@ EvAnnotationTextMarkupType ev_annotation_text_markup_get_markup_type (EvAnnotati
 gboolean                   ev_annotation_text_markup_set_markup_type (EvAnnotationTextMarkup    *annot,
                                                                       EvAnnotationTextMarkupType markup_type);
 
+
+
+/* EvAnnotationInk */
+GType                ev_annotation_ink_get_type             (void) G_GNUC_CONST;
+EvAnnotation        *ev_annotation_ink_new                  (EvPage                 *page);
+gboolean            ev_annotation_ink_is_hit               (EvAnnotationInk *annot, gdouble x, gdouble y);
+void
+ev_annotation_ink_set_widths (	EvAnnotationInk *annot,
+				GArray *widths );
+
+void
+ev_annotation_ink_set_width (	EvAnnotationInk *annot,
+				int width );
+void
+ev_annotation_ink_set_operator (EvAnnotationInk *annot,
+				int op);
+void
+ev_annotation_ink_set_paths(	EvAnnotationInk *annot,
+				GArray *paths);
+void
+ev_annotation_ink_get_paths(	EvAnnotationInk *annot, GArray **paths);
 G_END_DECLS
 
 #endif /* EV_ANNOTATION_H */
