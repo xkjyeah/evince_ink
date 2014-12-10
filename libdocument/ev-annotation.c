@@ -1548,7 +1548,7 @@ is_on_line(gpointer a, gdouble x, gdouble y, gpointer data)
      *      ensure that distance to one of the edge points is at
      *      most half-width
      *      */
-    {
+    if (sq_line_length != 0) {
         gdouble xa,ya, xb,yb;
 
         xa = x - rect->x1;
@@ -1608,7 +1608,7 @@ ev_annotation_ink_set_paths(	EvAnnotationInk *annot,
 	g_array_ref(paths);
 
     // Find the extents of the annotation
-    gboolean first_time = FALSE;
+    gboolean first_time = TRUE;
     gdouble min_x = 0, max_x = 1, min_y = 1, max_y = 1;
     gdouble half_width = annot->width / 2;
 	for (i=0; i<paths->len; i++) {
@@ -1634,10 +1634,10 @@ ev_annotation_ink_set_paths(	EvAnnotationInk *annot,
         ev_mapping_tree_unref(annot->quadtree);
     }
     EvRectangle extents;
-    extents.x1 = min_x - halfwidth;
-    extents.y1 = min_y - halfwidth;
-    extents.x2 = max_x + halfwidth;
-    extents.y2 = max_y + halfwidth;
+    extents.x1 = min_x - half_width;
+    extents.y1 = min_y - half_width;
+    extents.x2 = max_x + half_width;
+    extents.y2 = max_y + half_width;
     annot->quadtree = ev_mapping_tree_new(0, extents, g_free);
 
 	for (i=0; i<paths->len; i++) {
@@ -1652,12 +1652,11 @@ ev_annotation_ink_set_paths(	EvAnnotationInk *annot,
             if (j > 0) {
                 EvRectangle rect;
                 EvRectangle *line = g_malloc(sizeof(EvRectangle));
-                gdouble halfwidth = annot->width * 0.5;
 
-                rect.x1 = MIN(x, xp) - halfwidth;
-                rect.x2 = MAX(x, xp) + halfwidth;
-                rect.y1 = MIN(y, yp) - halfwidth;
-                rect.y2 = MAX(y, yp) + halfwidth;
+                rect.x1 = MIN(x, xp) - half_width;
+                rect.x2 = MAX(x, xp) + half_width;
+                rect.y1 = MIN(y, yp) - half_width;
+                rect.y2 = MAX(y, yp) + half_width;
 
                 line->x1 = xp;
                 line->x2 = x;
@@ -1677,10 +1676,6 @@ ev_annotation_ink_set_paths(	EvAnnotationInk *annot,
 gboolean
 ev_annotation_ink_is_hit (EvAnnotationInk *annot, gdouble x, gdouble y)
 {
-    EvAnnotationMarkup *markup = EV_ANNOTATION_MARKUP(annot);
-    EvAnnotationMarkupProps *props = ev_annotation_markup_get_properties(markup);
-    EvRectangle *rect = &props->rectangle;
-
     gpointer hit_item = ev_mapping_tree_get(annot->quadtree, x, y);
 
     return (hit_item != 0);

@@ -3205,21 +3205,21 @@ ev_view_handle_annotation (EvView       *view,
 static EvAnnotationInk *
 create_ink_annotation (EvView    *view, EvPage *page)
 {
-    EvAnnotationInk *ink = ev_annotation_ink_new(page);
-    uint32_t i,j;
+    EvAnnotationInk *ink = EV_ANNOTATION_INK(ev_annotation_ink_new(page));
+    guint32 i,j;
 
-    ev_annotation_set_color (annot, &view->drawing_data.ink.color);
-    ev_annotation_ink_set_width (ink, &view->drawing_data.ink.width);
+    ev_annotation_set_color (EV_ANNOTATION(ink), &view->drawing_data.ink.color);
+    ev_annotation_ink_set_width (ink, view->drawing_data.ink.width);
     //
     // for path in paths
     //      for x,y in path
     //          convert x,y to page coordinates
     //          add x,y to other path
     GArray *vpaths = view->drawing_data.ink.paths;
-    GArray *fpaths = g_array_new(0, 0, vpaths->len);
+    GArray *fpaths = g_array_new(0, 0, sizeof(GArray*));
     for (i=0; i<vpaths->len; i++) {
-        GArray *vpath = g_array_index(vpath, GArray*, i);
-        GArray *fpath = g_array_new(0, 0, vpaths->len);
+        GArray *vpath = g_array_index(vpaths, GArray*, i);
+        GArray *fpath = g_array_new(0, 0, sizeof(gdouble));
         for (j=0; j<vpath->len; j += 2) {
             int x,y;
             x = g_array_index(vpath, int, j);
@@ -3227,18 +3227,22 @@ create_ink_annotation (EvView    *view, EvPage *page)
 
             // convert to doc coords
             gdouble fx, fy;
-            get_doc_point_from_location(view, x, y, page, &fx, &fy);
+            gint dx, dy;
+            int doc_page;
+            get_doc_point_from_location(view, x, y, &doc_page, &dx, &dy);
+            fx = dx;
+            fy = dy;
 
             g_array_append_val(fpath, fx);
             g_array_append_val(fpath, fy);
         }
-        g_array_free(vpath);
+        g_array_free(vpath, TRUE);
     }
-    g_array_free(vpaths);
+    g_array_free(vpaths, TRUE);
     ev_annotation_ink_set_paths(ink, fpaths);
 
     for (i=0; i<fpaths->len; i++) {
-        GArray *fpath = g_array_index(fpath, GArray*, i);
+        GArray *fpath = g_array_index(fpaths, GArray*, i);
         g_array_unref(fpath);
     }
     g_array_unref(fpaths);
@@ -3284,7 +3288,7 @@ ev_view_create_annotation (EvView          *view,
 		ev_document_doc_mutex_unlock ();
 		return;
     case EV_ANNOTATION_TYPE_INK: 
-        annot = EV_ANNOTATION_INK(create_ink_annotation(view, page));
+        annot = EV_ANNOTATION(create_ink_annotation(view, page));
         break;
 	default:
 		g_assert_not_reached ();
@@ -3364,8 +3368,8 @@ ev_view_begin_add_annotation (EvView          *view,
     case EV_ANNOTATION_TYPE_INK: {
         // TODO: change the colour through settings 
         GdkColor default_color = {0, 65535, 0, 0};
-        view->drawing_data.ink = g_array_new(0, 0, sizeof(GArray*));
-        view->drawing_data.ink.color.red = default_color;
+        view->drawing_data.ink.paths = g_array_new(0, 0, sizeof(GArray*));
+        view->drawing_data.ink.color = default_color;
         view->drawing_data.ink.width = 1;
         }
         break;
@@ -3387,7 +3391,7 @@ ev_view_cancel_add_annotation (EvView *view)
     switch (view->adding_annot_type) {
     case EV_ANNOTATION_TYPE_INK: 
             // Here, we actually *add* the ink annotation...
-        ev_view_create_annotation(view, EV_ANNOTATION_TYPE_INK, 0, 0,);
+        ev_view_create_annotation(view, EV_ANNOTATION_TYPE_INK, 0, 0);
         break;
     default:
         break;
@@ -4293,11 +4297,10 @@ drawing_ink_annot(EvView *view,
 static void
 draw_partially_drawn_ink (EvView *view,
                             cairo_t *cr,
-                            gint page,
-                            GdkRectangle *clip)
+                            gint page)
 {
     GArray *paths = (GArray*) view->drawing_data.ink.paths;
-    uint32_t i, j;
+    guint32 i, j;
 
     /* set up the drawing context */
     cairo_save(cr);
@@ -4306,11 +4309,8 @@ draw_partially_drawn_ink (EvView *view,
     GdkColor color = view->drawing_data.ink.color;
     gdouble width = view->drawing_data.ink.width;
 
-    ev_annotation_markup_get_color(EV_ANNOTATION_MARKUP(view->drawing_annotation), &color);
-    ev_annotation_ink_get_width(EV_ANNOTATION_INK(view->drawing_annotation), &color);
-
-    cairo_set_source_rgba(cr, color.red / 65535.0, color.green / 65535.0, color.blue / 65535.0)
-    cairo_set_line_width(cr, width * view->scale)
+    cairo_set_source_rgba(cr, color.red / 65535.0, color.green / 65535.0, color.blue / 65535.0, 1.0);
+    cairo_set_line_width(cr, width * view->scale);
     // TODO: set dash, operator (non-compatible with PDF standard), variable width 
 
     for (i=0; i<paths->len; i++) {
@@ -4972,9 +4972,10 @@ ev_view_button_press_event (GtkWidget      *widget,
 	view->selection_info.in_drag = FALSE;
 
 	if (view->adding_annot) {
-        if (view->adding_annot_type == EV_ANNOTATION_INK) {
+        if (view->adding_annot_type == EV_ANNOTATION_TYPE_INK) {
             // break the path and add new one
-            g_array_append_val( view->drawing_data->paths, g_array_new(0,0,sizeof(GArray*)));
+            GArray *arr = g_array_new(0,0,sizeof(GArray*));
+            g_array_append_val( view->drawing_data.ink.paths, arr);
         }
 		return FALSE;
     }
