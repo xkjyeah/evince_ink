@@ -2887,6 +2887,7 @@ ev_annot_from_poppler_annot (PopplerAnnot *poppler_annot,
             EvAnnotationInk *ev_ink = EV_ANNOTATION_INK(ev_annot);
 			PopplerAnnotInk *a_ink = POPPLER_ANNOT_INK(poppler_annot);
 			PopplerAnnotPaths *paths = poppler_annot_ink_get_ink_list(a_ink);
+            PopplerAnnotBorder *border = poppler_annot_get_border(poppler_annot);
             double height, i, j;
 
             poppler_page_get_size (POPPLER_PAGE (page->backend_page), NULL, &height);
@@ -2917,7 +2918,7 @@ ev_annot_from_poppler_annot (PopplerAnnot *poppler_annot,
 
             ev_annotation_ink_set_paths(ev_ink, arr_paths); // adds ref
 			ev_annotation_ink_set_operator(ev_ink, EV_ANNOTATION_INK_OPERATOR_OVER);
-			ev_annotation_ink_set_width(ev_ink, 1);
+			ev_annotation_ink_set_width(ev_ink, poppler_annot_border_get_width(border) );
 
 			/* Remove one reference from the paths... */
 			for (int i=0; i<arr_paths->len; i++) {
