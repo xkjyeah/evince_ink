@@ -3200,6 +3200,53 @@ ev_view_handle_annotation (EvView       *view,
 	}
 }
 
+/* Create the ink annotation based on the
+ * path data in view->drawing_data.ink */
+static EvAnnotationInk *
+create_ink_annotation (EvView    *view, EvPage *page)
+{
+    EvAnnotationInk *ink = ev_annotation_ink_new(page);
+    uint32_t i,j;
+
+    ev_annotation_set_color (annot, &view->drawing_data.ink.color);
+    ev_annotation_ink_set_width (ink, &view->drawing_data.ink.width);
+    //
+    // for path in paths
+    //      for x,y in path
+    //          convert x,y to page coordinates
+    //          add x,y to other path
+    GArray *vpaths = view->drawing_data.ink.paths;
+    GArray *fpaths = g_array_new(0, 0, vpaths->len);
+    for (i=0; i<vpaths->len; i++) {
+        GArray *vpath = g_array_index(vpath, GArray*, i);
+        GArray *fpath = g_array_new(0, 0, vpaths->len);
+        for (j=0; j<vpath->len; j += 2) {
+            int x,y;
+            x = g_array_index(vpath, int, j);
+            y = g_array_index(vpath, int, j + 1);
+
+            // convert to doc coords
+            gdouble fx, fy;
+            get_doc_point_from_location(view, x, y, page, &fx, &fy);
+
+            g_array_append_val(fpath, fx);
+            g_array_append_val(fpath, fy);
+        }
+        g_array_free(vpath);
+    }
+    g_array_free(vpaths);
+    ev_annotation_ink_set_paths(ink, fpaths);
+
+    for (i=0; i<fpaths->len; i++) {
+        GArray *fpath = g_array_index(fpath, GArray*, i);
+        g_array_unref(fpath);
+    }
+    g_array_unref(fpaths);
+
+    return ink;
+}
+
+
 static void
 ev_view_create_annotation (EvView          *view,
 			   EvAnnotationType annot_type,
@@ -3229,18 +3276,20 @@ ev_view_create_annotation (EvView          *view,
 	switch (annot_type) {
 	case EV_ANNOTATION_TYPE_TEXT:
 		annot = ev_annotation_text_new (page);
+        ev_annotation_set_color (annot, &color);
 		break;
 	case EV_ANNOTATION_TYPE_ATTACHMENT:
 		/* TODO */
 		g_object_unref (page);
 		ev_document_doc_mutex_unlock ();
 		return;
+    case EV_ANNOTATION_TYPE_INK: 
+        annot = EV_ANNOTATION_INK(create_ink_annotation(view, page));
+        break;
 	default:
 		g_assert_not_reached ();
 	}
 	g_object_unref (page);
-
-	ev_annotation_set_color (annot, &color);
 
 	if (EV_IS_ANNOTATION_MARKUP (annot)) {
 		popup_rect.x1 = doc_rect.x2;
@@ -3263,7 +3312,9 @@ ev_view_create_annotation (EvView          *view,
 	if (!ev_page_cache_get_annot_mapping (view->page_cache, view->current_page))
 		ev_page_cache_mark_dirty (view->page_cache, view->current_page, EV_PAGE_DATA_INCLUDE_ANNOTS);
 
-	if (EV_IS_ANNOTATION_MARKUP (annot)) {
+    /* Show annotation window if there are markup, but not if 
+     * they are drawing objects */
+	if (EV_IS_ANNOTATION_MARKUP (annot) && !EV_IS_ANNOTATION_INK(annot) ) {
 		GtkWindow *parent;
 		GtkWidget *window;
 
@@ -3309,7 +3360,19 @@ ev_view_begin_add_annotation (EvView          *view,
 	view->adding_annot = TRUE;
 	view->adding_annot_type = annot_type;
 
-    // TODO: a "pen" cursor for Ink annotations
+    switch (annot_type) {
+    case EV_ANNOTATION_TYPE_INK: {
+        // TODO: change the colour through settings 
+        GdkColor default_color = {0, 65535, 0, 0};
+        view->drawing_data.ink = g_array_new(0, 0, sizeof(GArray*));
+        view->drawing_data.ink.color.red = default_color;
+        view->drawing_data.ink.width = 1;
+        }
+        break;
+    default:
+        break;
+    }
+
 	ev_view_set_cursor (view, EV_VIEW_CURSOR_ADD);
 }
 
@@ -3320,6 +3383,16 @@ ev_view_cancel_add_annotation (EvView *view)
 
 	if (!view->adding_annot)
 		return;
+
+    switch (view->adding_annot_type) {
+    case EV_ANNOTATION_TYPE_INK: 
+            // Here, we actually *add* the ink annotation...
+        ev_view_create_annotation(view, EV_ANNOTATION_TYPE_INK, 0, 0,);
+        break;
+    default:
+        break;
+    }
+
 
 	view->adding_annot = FALSE;
 	ev_document_misc_get_pointer_position (GTK_WIDGET (view), &x, &y);
@@ -4199,6 +4272,68 @@ should_draw_caret_cursor (EvView  *view,
 		!ev_pixbuf_cache_get_selection_region (view->pixbuf_cache, page, view->scale));
 }
 
+static gboolean
+drawing_ink_annot(EvView *view,
+                    GdkEventMotion *event)
+{
+    int x, y;
+
+    x = event->x;
+    y = event->y;
+
+    GArray *paths = view->drawing_data.ink.paths;
+    GArray *path = g_array_index(paths, GArray*, paths->len - 1);
+
+    g_array_append_val(path, x);
+    g_array_append_val(path, y);
+
+    return FALSE;
+}
+
+static void
+draw_partially_drawn_ink (EvView *view,
+                            cairo_t *cr,
+                            gint page,
+                            GdkRectangle *clip)
+{
+    GArray *paths = (GArray*) view->drawing_data.ink.paths;
+    uint32_t i, j;
+
+    /* set up the drawing context */
+    cairo_save(cr);
+
+    /* get the annotation color... */
+    GdkColor color = view->drawing_data.ink.color;
+    gdouble width = view->drawing_data.ink.width;
+
+    ev_annotation_markup_get_color(EV_ANNOTATION_MARKUP(view->drawing_annotation), &color);
+    ev_annotation_ink_get_width(EV_ANNOTATION_INK(view->drawing_annotation), &color);
+
+    cairo_set_source_rgba(cr, color.red / 65535.0, color.green / 65535.0, color.blue / 65535.0)
+    cairo_set_line_width(cr, width * view->scale)
+    // TODO: set dash, operator (non-compatible with PDF standard), variable width 
+
+    for (i=0; i<paths->len; i++) {
+        GArray *path = (GArray*) g_array_index(paths, GArray*, i);
+        int x1, y1;
+
+        if (path->len >= 2) {
+            x1 = g_array_index(path, int, 0);   
+            y1 = g_array_index(path, int, 1);   
+
+            cairo_move_to(cr, x1, y1);
+        }
+        for (j=0; j < path->len; j += 2) {
+            x1 = g_array_index(path, int, 0);   
+            y1 = g_array_index(path, int, 1);   
+
+            cairo_line_to(cr, x1, y1);
+        }
+    }
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+
 static void
 draw_focus (EvView       *view,
 	    cairo_t      *cr,
@@ -4451,6 +4586,8 @@ ev_view_draw (GtkWidget *widget,
 			draw_focus (view, cr, i, &clip_rect);
 		if (page_ready && view->synctex_result)
 			highlight_forward_search_results (view, cr, i);
+        if (page_ready && view->adding_annot && view->adding_annot_type == EV_ANNOTATION_TYPE_INK)
+            draw_partially_drawn_ink(view, cr, i);
 #ifdef EV_ENABLE_DEBUG
 		if (page_ready)
 			draw_debug_borders (view, cr, i, &clip_rect);
@@ -4834,8 +4971,13 @@ ev_view_button_press_event (GtkWidget      *widget,
 	view->pressed_button = event->button;
 	view->selection_info.in_drag = FALSE;
 
-	if (view->adding_annot)
+	if (view->adding_annot) {
+        if (view->adding_annot_type == EV_ANNOTATION_INK) {
+            // break the path and add new one
+            g_array_append_val( view->drawing_data->paths, g_array_new(0,0,sizeof(GArray*)));
+        }
 		return FALSE;
+    }
 
 	if (view->scroll_info.autoscrolling)
 		return TRUE;
@@ -5198,8 +5340,15 @@ ev_view_motion_notify_event (GtkWidget      *widget,
 		}
 	}
 	
+    if (view->adding_annot && view->adding_annot_type == EV_ANNOTATION_TYPE_INK) {
+        if (view->pressed_button == 1) {
+            return drawing_ink_annot(view, event);
+        }
+    }
+
 	switch (view->pressed_button) {
 	case 1:
+
 		/* For the Evince 0.4.x release, we limit selection to un-rotated
 		 * documents only.
 		 */
@@ -5331,10 +5480,16 @@ ev_view_button_release_event (GtkWidget      *widget,
 		ev_view_handle_cursor_over_xy (view, event->x, event->y);
 		view->pressed_button = -1;
 
-		ev_view_create_annotation (view,
+        switch (view->adding_annot_type) {
+        case EV_ANNOTATION_TYPE_INK:
+            // Ink annotations are added when they are "cancelled"
+            return FALSE;
+        default:
+            ev_view_create_annotation (view,
 					   view->adding_annot_type,
 					   event->x + view->scroll_x,
 					   event->y + view->scroll_y);
+        }
 
 		return FALSE;
 	}

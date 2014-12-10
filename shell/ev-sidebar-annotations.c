@@ -55,6 +55,7 @@ struct _EvSidebarAnnotationsPrivate {
 	GtkWidget   *tree_view;
 	GtkWidget   *palette;
 	GtkToolItem *annot_text_item;
+	GtkToolItem *annot_ink_item;
 
 	EvJob       *job;
 	guint        selection_changed_id;
@@ -178,6 +179,8 @@ ev_sidebar_annotations_text_annot_button_toggled (GtkToggleToolButton  *toolbutt
 
 	if (GTK_TOOL_ITEM (toolbutton) == sidebar_annots->priv->annot_text_item)
 		annot_type = EV_ANNOTATION_TYPE_TEXT;
+	else if (GTK_TOOL_ITEM (toolbutton) == sidebar_annots->priv->annot_ink_item)
+		annot_type = EV_ANNOTATION_TYPE_INK;
 	else
 		annot_type = EV_ANNOTATION_TYPE_UNKNOWN;
 
@@ -211,6 +214,17 @@ ev_sidebar_annotations_add_annots_palette (EvSidebarAnnotations *ev_annots)
 	gtk_tool_button_set_label (GTK_TOOL_BUTTON (item), _("Text"));
 	gtk_widget_set_tooltip_text (GTK_WIDGET (item), _("Add text annotation"));
 	ev_annots->priv->annot_text_item = item;
+	g_signal_connect (item, "toggled",
+			  G_CALLBACK (ev_sidebar_annotations_text_annot_button_toggled),
+			  ev_annots);
+	gtk_tool_item_group_insert (GTK_TOOL_ITEM_GROUP (group), item, -1);
+	gtk_widget_show (GTK_WIDGET (item));
+
+	item = gtk_toggle_tool_button_new ();
+	gtk_tool_button_set_icon_name (GTK_TOOL_BUTTON (item), "document-new-symbolic");
+	gtk_tool_button_set_label (GTK_TOOL_BUTTON (item), _("Ink"));
+	gtk_widget_set_tooltip_text (GTK_WIDGET (item), _("Add ink annotation"));
+	ev_annots->priv->annot_ink_item = item;
 	g_signal_connect (item, "toggled",
 			  G_CALLBACK (ev_sidebar_annotations_text_annot_button_toggled),
 			  ev_annots);

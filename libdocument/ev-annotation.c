@@ -1610,6 +1610,7 @@ ev_annotation_ink_set_paths(	EvAnnotationInk *annot,
     // Find the extents of the annotation
     gboolean first_time = FALSE;
     gdouble min_x = 0, max_x = 1, min_y = 1, max_y = 1;
+    gdouble half_width = annot->width / 2;
 	for (i=0; i<paths->len; i++) {
         GArray *path = g_array_index(paths, GArray*, i);
         int j;
@@ -1633,10 +1634,10 @@ ev_annotation_ink_set_paths(	EvAnnotationInk *annot,
         ev_mapping_tree_unref(annot->quadtree);
     }
     EvRectangle extents;
-    extents.x1 = min_x;
-    extents.y1 = min_y;
-    extents.x2 = max_x;
-    extents.y2 = max_y;
+    extents.x1 = min_x - halfwidth;
+    extents.y1 = min_y - halfwidth;
+    extents.x2 = max_x + halfwidth;
+    extents.y2 = max_y + halfwidth;
     annot->quadtree = ev_mapping_tree_new(0, extents, g_free);
 
 	for (i=0; i<paths->len; i++) {

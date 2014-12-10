@@ -210,6 +210,16 @@ struct _EvView {
 	gboolean           adding_annot;
 	EvAnnotationType   adding_annot_type;
 
+    /* Drawing annotations */
+    union {
+        struct {
+            GArray*     paths;
+            GdkColor    color;
+            gdouble     width;
+        } ink;
+    } drawing_data;
+    EvAnnotation        *drawing_annot;
+
 	/* Focus */
 	EvMapping *focused_element;
 	guint focused_element_page;
