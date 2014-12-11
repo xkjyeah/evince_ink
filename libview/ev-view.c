@@ -4276,6 +4276,22 @@ should_draw_caret_cursor (EvView  *view,
 		!ev_pixbuf_cache_get_selection_region (view->pixbuf_cache, page, view->scale));
 }
 
+static void
+redraw_ink_annot(EvView *view)
+{
+    GdkRectangle damage_rect;
+    GArray *paths = view->drawing_data.ink.paths;
+    GArray *path = g_array_index(paths, GArray*, paths->len - 1);
+    
+    if (path->len >= 4) {
+        rect.x1 = g_array_index(path, int, path->len - 4);
+        rect.y1 = g_array_index(path, int, path->len - 3);
+        rect.x2 = x;
+        rect.y2 = y;
+        gdk_window_invalidate_rect(GDK_WINDOW(view), &rect, TRUE)
+    }
+}
+
 static gboolean
 drawing_ink_annot(EvView *view,
                     GdkEventMotion *event)
@@ -4324,8 +4340,8 @@ draw_partially_drawn_ink (EvView *view,
             cairo_move_to(cr, x1, y1);
         }
         for (j=0; j < path->len; j += 2) {
-            x1 = g_array_index(path, int, 0);   
-            y1 = g_array_index(path, int, 1);   
+            x1 = g_array_index(path, int, j);   
+            y1 = g_array_index(path, int, j + 1);   
 
             cairo_line_to(cr, x1, y1);
         }
@@ -4976,6 +4992,8 @@ ev_view_button_press_event (GtkWidget      *widget,
             // break the path and add new one
             GArray *arr = g_array_new(0,0,sizeof(GArray*));
             g_array_append_val( view->drawing_data.ink.paths, arr);
+            
+            redraw_ink_annot(view);
         }
 		return FALSE;
     }
@@ -5483,6 +5501,7 @@ ev_view_button_release_event (GtkWidget      *widget,
 
         switch (view->adding_annot_type) {
         case EV_ANNOTATION_TYPE_INK:
+            redraw_ink_annot(view);
             // Ink annotations are added when they are "cancelled"
             return FALSE;
         default:
