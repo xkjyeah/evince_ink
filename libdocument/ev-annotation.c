@@ -1505,6 +1505,17 @@ ev_annotation_ink_set_widths (	EvAnnotationInk *annot,
 }
 
 
+gboolean
+ev_annotation_ink_get_width (	EvAnnotationInk *annot,
+                                int *width )
+{
+    if (width) {
+        *width = annot->width;
+    }
+    return TRUE;
+}
+
+
 void
 ev_annotation_ink_set_width (	EvAnnotationInk *annot,
 				int width )
@@ -1579,11 +1590,12 @@ is_on_line(gpointer a, gdouble x, gdouble y, gpointer data)
     return FALSE;
 }
 
-void
+gboolean
 ev_annotation_ink_get_paths(	EvAnnotationInk *annot,
 				GArray **paths)
 {
     *paths = annot->paths;   
+    return TRUE;
 }
 
 void

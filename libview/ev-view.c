@@ -3202,8 +3202,8 @@ ev_view_handle_annotation (EvView       *view,
 
 /* Create the ink annotation based on the
  * path data in view->drawing_data.ink */
-static EvAnnotationInk *
-create_ink_annotation (EvView    *view, EvPage *page)
+static void
+create_ink_annotation (EvView    *view, EvPage *page, EvAnnotationInk **r_ink, EvRectangle *rect)
 {
     EvAnnotationInk *ink = EV_ANNOTATION_INK(ev_annotation_ink_new(page));
     guint32 i,j;
@@ -3217,6 +3217,13 @@ create_ink_annotation (EvView    *view, EvPage *page)
     //          add x,y to other path
     GArray *vpaths = view->drawing_data.ink.paths;
     GArray *fpaths = g_array_new(0, 0, sizeof(GArray*));
+    double min_x = 1e99, min_y = 1e99, max_x = -1e99, max_y = -1e99;
+
+    if (!vpaths->len) {
+        *r_ink = NULL;
+        return;
+    }
+
     for (i=0; i<vpaths->len; i++) {
         GArray *vpath = g_array_index(vpaths, GArray*, i);
         GArray *fpath = g_array_new(0, 0, sizeof(gdouble));
@@ -3229,14 +3236,20 @@ create_ink_annotation (EvView    *view, EvPage *page)
             gdouble fx, fy;
             gint dx, dy;
             int doc_page;
+
             get_doc_point_from_location(view, x, y, &doc_page, &dx, &dy);
             fx = dx;
             fy = dy;
+            min_x = MIN(min_x, fx);
+            min_y = MIN(min_y, fy);
+            max_x = MAX(max_x, fx);
+            max_y = MAX(max_y, fy);
 
             g_array_append_val(fpath, fx);
             g_array_append_val(fpath, fy);
         }
         g_array_free(vpath, TRUE);
+        g_array_append_val(fpaths, fpath);
     }
     g_array_free(vpaths, TRUE);
     ev_annotation_ink_set_paths(ink, fpaths);
@@ -3247,7 +3260,11 @@ create_ink_annotation (EvView    *view, EvPage *page)
     }
     g_array_unref(fpaths);
 
-    return ink;
+    *r_ink = ink;
+    rect->x1 = min_x - view->drawing_data.ink.width;
+    rect->y1 = min_y - view->drawing_data.ink.width;
+    rect->x2 = max_x - view->drawing_data.ink.width;
+    rect->y2 = max_y - view->drawing_data.ink.width;
 }
 
 
@@ -3287,27 +3304,40 @@ ev_view_create_annotation (EvView          *view,
 		g_object_unref (page);
 		ev_document_doc_mutex_unlock ();
 		return;
-    case EV_ANNOTATION_TYPE_INK: 
-        annot = EV_ANNOTATION(create_ink_annotation(view, page));
+    case EV_ANNOTATION_TYPE_INK: {
+            EvAnnotationInk *ink;
+            create_ink_annotation(view, page, &ink, &doc_rect);
+            if (!ink) {
+                return;
+            }
+            annot = EV_ANNOTATION(ink);
+        }
         break;
 	default:
 		g_assert_not_reached ();
 	}
 	g_object_unref (page);
 
-	if (EV_IS_ANNOTATION_MARKUP (annot)) {
-		popup_rect.x1 = doc_rect.x2;
-		popup_rect.x2 = popup_rect.x1 + 200;
-		popup_rect.y1 = doc_rect.y2;
-		popup_rect.y2 = popup_rect.y1 + 150;
-		g_object_set (annot,
-			      "rectangle", &popup_rect,
-			      "has_popup", TRUE,
-			      "popup_is_open", FALSE,
-			      "label", g_get_real_name (),
-			      "opacity", 1.0,
-			      NULL);
-	}
+    switch (annot_type) {
+	case EV_ANNOTATION_TYPE_TEXT: {
+            popup_rect.x1 = doc_rect.x2;
+            popup_rect.x2 = popup_rect.x1 + 200;
+            popup_rect.y1 = doc_rect.y2;
+            popup_rect.y2 = popup_rect.y1 + 150;
+            g_object_set (annot,
+                      "rectangle", &popup_rect,
+                      "has_popup", TRUE,
+                      "popup_is_open", FALSE,
+                      "label", g_get_real_name (),
+                      "opacity", 1.0,
+                      NULL);
+        }
+        break;
+    case EV_ANNOTATION_TYPE_INK:
+    default:
+        break;
+    }
+
 	ev_document_annotations_add_annotation (EV_DOCUMENT_ANNOTATIONS (view->document),
 						annot, &doc_rect);
 	ev_document_doc_mutex_unlock ();
@@ -3417,14 +3447,14 @@ ev_view_remove_annotation (EvView       *view,
         page = ev_annotation_get_page_index (annot);
 
         if (EV_IS_ANNOTATION_MARKUP (annot)) {
-		EvViewWindowChild *child;
+            EvViewWindowChild *child;
 
-		child = ev_view_find_window_child_for_annot (view, page, annot);
-		if (child) {
-			view->window_children = g_list_remove (view->window_children, child);
-			gtk_widget_destroy (child->window);
-			g_free (child);
-		}
+            child = ev_view_find_window_child_for_annot (view, page, annot);
+            if (child) {
+                view->window_children = g_list_remove (view->window_children, child);
+                gtk_widget_destroy (child->window);
+                g_free (child);
+            }
         }
         _ev_view_set_focused_element (view, NULL, -1);
 
@@ -4279,16 +4309,24 @@ should_draw_caret_cursor (EvView  *view,
 static void
 redraw_ink_annot(EvView *view)
 {
-    GdkRectangle damage_rect;
+    GdkRectangle rect;
     GArray *paths = view->drawing_data.ink.paths;
+    int width = (int)(ceil(view->drawing_data.ink.width * view->scale)); 
     GArray *path = g_array_index(paths, GArray*, paths->len - 1);
+
+    width = MAX(width * 2, 2);
     
     if (path->len >= 4) {
-        rect.x1 = g_array_index(path, int, path->len - 4);
-        rect.y1 = g_array_index(path, int, path->len - 3);
-        rect.x2 = x;
-        rect.y2 = y;
-        gdk_window_invalidate_rect(GDK_WINDOW(view), &rect, TRUE)
+        int x1, x2, y1, y2;
+        x1 = g_array_index(path, int, path->len - 4);
+        y1 = g_array_index(path, int, path->len - 3);
+        x2 = g_array_index(path, int, path->len - 2);
+        y2 = g_array_index(path, int, path->len - 1);
+        rect.x = MIN(x1, x2) - width;
+        rect.y = MIN(y1, y2) - width;
+        rect.width = abs(x1 - x2) + 2 * width;
+        rect.height = abs(y1 - y2) + 2 * width;
+        gdk_window_invalidate_rect(gtk_widget_get_window(GTK_WIDGET(view)), &rect, TRUE);
     }
 }
 
@@ -4306,6 +4344,8 @@ drawing_ink_annot(EvView *view,
 
     g_array_append_val(path, x);
     g_array_append_val(path, y);
+
+    redraw_ink_annot(view);
 
     return FALSE;
 }
@@ -4990,7 +5030,7 @@ ev_view_button_press_event (GtkWidget      *widget,
 	if (view->adding_annot) {
         if (view->adding_annot_type == EV_ANNOTATION_TYPE_INK) {
             // break the path and add new one
-            GArray *arr = g_array_new(0,0,sizeof(GArray*));
+            GArray *arr = g_array_new(0,0,sizeof(int));
             g_array_append_val( view->drawing_data.ink.paths, arr);
             
             redraw_ink_annot(view);
@@ -5495,9 +5535,7 @@ ev_view_button_release_event (GtkWidget      *widget,
 
     // TODO: if adding an INK... do something else
 	if (view->adding_annot && view->pressed_button == 1) {
-		view->adding_annot = FALSE;
-		ev_view_handle_cursor_over_xy (view, event->x, event->y);
-		view->pressed_button = -1;
+        view->pressed_button = -1;
 
         switch (view->adding_annot_type) {
         case EV_ANNOTATION_TYPE_INK:
@@ -5505,6 +5543,9 @@ ev_view_button_release_event (GtkWidget      *widget,
             // Ink annotations are added when they are "cancelled"
             return FALSE;
         default:
+            view->adding_annot = FALSE;
+            ev_view_handle_cursor_over_xy (view, event->x, event->y);
+
             ev_view_create_annotation (view,
 					   view->adding_annot_type,
 					   event->x + view->scroll_x,

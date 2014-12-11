@@ -213,21 +213,21 @@ gboolean                   ev_annotation_text_markup_set_markup_type (EvAnnotati
 GType                ev_annotation_ink_get_type             (void) G_GNUC_CONST;
 EvAnnotation        *ev_annotation_ink_new                  (EvPage                 *page);
 gboolean            ev_annotation_ink_is_hit               (EvAnnotationInk *annot, gdouble x, gdouble y);
-void
-ev_annotation_ink_set_widths (	EvAnnotationInk *annot,
-				GArray *widths );
+void                ev_annotation_ink_set_widths            (EvAnnotationInk *annot,
+                                               				GArray *widths );
 
-void
-ev_annotation_ink_set_width (	EvAnnotationInk *annot,
-				int width );
-void
-ev_annotation_ink_set_operator (EvAnnotationInk *annot,
-				int op);
-void
-ev_annotation_ink_set_paths(	EvAnnotationInk *annot,
-				GArray *paths);
-void
-ev_annotation_ink_get_paths(	EvAnnotationInk *annot, GArray **paths);
+gboolean            ev_annotation_ink_get_operator          (EvAnnotationInk *annot,
+                                                            int *op);
+gboolean            ev_annotation_ink_get_width             (EvAnnotationInk *annot,
+                                                            int *width);
+void                ev_annotation_ink_set_width             (EvAnnotationInk *annot,
+                                            				int width);
+void                ev_annotation_ink_set_operator          (EvAnnotationInk *annot,
+				                                            int op);
+void                ev_annotation_ink_set_paths             (EvAnnotationInk *annot,
+                                               				GArray *paths);
+gboolean            ev_annotation_ink_get_paths             (EvAnnotationInk *annot,
+                                                            GArray **paths);
 G_END_DECLS
 
 #endif /* EV_ANNOTATION_H */

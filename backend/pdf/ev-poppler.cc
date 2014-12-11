@@ -2900,13 +2900,13 @@ ev_annot_from_poppler_annot (PopplerAnnot *poppler_annot,
                 i < poppler_annot_paths_get_length(paths);
                 i++) {
 
-                gpointer path = poppler_annot_paths_index(paths, i);
+                PopplerAnnotPath *path = poppler_annot_paths_get(paths, i);
                 GArray *arr_path = g_array_new(0, 0, sizeof(double));
 
                 for (j=0; j < poppler_annot_path_get_length(path); j++) {
                     double x, y;
 
-                    poppler_annot_path_index(path, j, &x, &y);
+                    poppler_annot_path_get(path, j, &x, &y);
                     y = height - y;
 
                     g_array_append_val(arr_path, x);
@@ -3217,17 +3217,63 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 			icon = ev_annotation_text_get_icon (text);
 			poppler_annot_text_set_icon (POPPLER_ANNOT_TEXT (poppler_annot),
 						     get_poppler_annot_text_icon (icon));
+
+            ev_annotation_get_color (annot, &color);
+            poppler_color.red = color.red;
+            poppler_color.green = color.green;
+            poppler_color.blue = color.blue;
+            poppler_annot_set_color (poppler_annot, &poppler_color);
+
 			}
 			break;
+        case EV_ANNOTATION_TYPE_INK: {
+            EvAnnotationInk *ink = EV_ANNOTATION_INK(annot);
+            int             width;
+            gdouble         height;
+            GdkColor        gdk_color;
+            GArray          *paths;
+            PopplerColor    poppler_color;
+            PopplerAnnotPaths *poppler_paths;
+
+            // read old values
+            ev_annotation_ink_get_width(ink, &width);
+            ev_annotation_get_color(EV_ANNOTATION(ink), &gdk_color);
+            ev_annotation_ink_get_paths(ink, &paths);
+            poppler_page_get_size (POPPLER_PAGE (page->backend_page), NULL, &height);
+
+            // convert values
+            poppler_color.red = gdk_color.red;
+            poppler_color.green = gdk_color.green;
+            poppler_color.blue = gdk_color.blue;
+
+            poppler_paths = poppler_annot_paths_new (paths->len);
+            for (int i=0; i<paths->len; i++) {
+                GArray *path = g_array_index (paths, GArray*, i);
+                PopplerPoint *points = new PopplerPoint[path->len/2];
+
+                // or use a memcpy...
+//                memcpy (points, path->data, sizeof(double) * path->len);
+                for (int j=0; j<path->len; j+=2) {
+                    points[j / 2].x = g_array_index (path, double, j);
+                    points[j / 2].y = height - g_array_index (path, double, j+1);
+                }
+                poppler_annot_paths_set (poppler_paths,
+                        i, poppler_annot_path_new (points, path->len/2));
+
+                delete[] points;
+            }
+
+            // set values
+            poppler_annot = poppler_annot_ink_new (pdf_document->document, &poppler_rect);
+            poppler_annot_set_color (poppler_annot, &poppler_color);
+            poppler_annot_border_set_width (poppler_annot_get_border (poppler_annot), width);
+            poppler_annot_ink_set_ink_list (POPPLER_ANNOT_INK(poppler_annot), poppler_paths);
+
+            }
+            break;
 		default:
 			g_assert_not_reached ();
 	}
-
-	ev_annotation_get_color (annot, &color);
-	poppler_color.red = color.red;
-	poppler_color.green = color.green;
-	poppler_color.blue = color.blue;
-	poppler_annot_set_color (poppler_annot, &poppler_color);
 
 	if (EV_IS_ANNOTATION_MARKUP (annot)) {
 		EvAnnotationMarkup *markup = EV_ANNOTATION_MARKUP (annot);
