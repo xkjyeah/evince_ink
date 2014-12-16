@@ -3401,6 +3401,9 @@ ev_view_begin_add_annotation (EvView          *view,
         view->drawing_data.ink.paths = g_array_new(0, 0, sizeof(GArray*));
         view->drawing_data.ink.color = default_color;
         view->drawing_data.ink.width = 1;
+
+        gdk_window_set_event_compression(
+            gtk_widget_get_window (GTK_WIDGET(view)), TRUE );
         }
         break;
     default:
@@ -3420,6 +3423,8 @@ ev_view_cancel_add_annotation (EvView *view)
 
     switch (view->adding_annot_type) {
     case EV_ANNOTATION_TYPE_INK: 
+        gdk_window_set_event_compression(
+            gtk_widget_get_window (GTK_WIDGET(view)), TRUE );
             // Here, we actually *add* the ink annotation...
         ev_view_create_annotation(view, EV_ANNOTATION_TYPE_INK, 0, 0);
         break;
@@ -4336,8 +4341,12 @@ drawing_ink_annot(EvView *view,
 {
     int x, y;
 
-    x = event->x;
-    y = event->y;
+    if (event->is_hint) {
+	    ev_document_misc_get_pointer_position (GTK_WIDGET(view), &x, &y);
+    } else {
+	    x = event->x;
+	    y = event->y;
+	}
 
     GArray *paths = view->drawing_data.ink.paths;
     GArray *path = g_array_index(paths, GArray*, paths->len - 1);
@@ -5340,14 +5349,20 @@ ev_view_motion_notify_event (GtkWidget      *widget,
 	if (!view->document)
 		return FALSE;
 
+    if (view->adding_annot && view->adding_annot_type == EV_ANNOTATION_TYPE_INK) {
+        if (view->pressed_button == 1) {
+            return drawing_ink_annot(view, event);
+        }
+    }
+
 	if (gtk_gesture_is_recognized (view->zoom_gesture))
 		return TRUE;
 
 	window = gtk_widget_get_window (widget);
 
-        if (event->is_hint || event->window != window) {
+    if (event->is_hint || event->window != window) {
 	    ev_document_misc_get_pointer_position (widget, &x, &y);
-        } else {
+    } else {
 	    x = event->x;
 	    y = event->y;
 	}
@@ -5399,12 +5414,6 @@ ev_view_motion_notify_event (GtkWidget      *widget,
 		}
 	}
 	
-    if (view->adding_annot && view->adding_annot_type == EV_ANNOTATION_TYPE_INK) {
-        if (view->pressed_button == 1) {
-            return drawing_ink_annot(view, event);
-        }
-    }
-
 	switch (view->pressed_button) {
 	case 1:
 
