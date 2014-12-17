@@ -33,6 +33,7 @@
 #ifdef HAVE_CAIRO_PS
 #include <cairo-ps.h>
 #endif
+#include <cairo-script.h>
 #include <glib/gi18n-lib.h>
 
 #include "ev-poppler.h"
@@ -3180,6 +3181,13 @@ pdf_document_annotations_remove_annotation (EvDocumentAnnotations *document_anno
         pdf_document->annots_modified = TRUE;
 }
 
+static cairo_status_t write_to_string(void *drawing_void, const unsigned char *data, unsigned int length)
+{
+    GString *drawing = (GString*)drawing_void;
+    g_string_append_len(drawing, (const char*)data, length);
+    return CAIRO_STATUS_SUCCESS;
+}
+
 static void
 pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotations,
 					 EvAnnotation          *annot,
@@ -3206,7 +3214,7 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 	poppler_rect.x2 = rect->x2;
 	poppler_rect.y1 = height - rect->y2;
 	poppler_rect.y2 = height - rect->y1;
-
+   
 	switch (ev_annotation_get_annotation_type (annot)) {
 		case EV_ANNOTATION_TYPE_TEXT: {
 			EvAnnotationText    *text = EV_ANNOTATION_TEXT (annot);
@@ -3274,6 +3282,40 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 		default:
 			g_assert_not_reached ();
 	}
+ 
+    { // appearances 
+        cairo_surface_t *src;
+        EvRectangle bounds;
+
+        ev_annotation_get_appearance(annot, &src, &bounds);
+
+        if (src) {
+            GString *drawing_string = g_string_new("");
+            PopplerRectangle finalBounds;
+
+            cairo_device_t *script_dev = 
+                    cairo_script_create_for_stream(write_to_string, drawing_string);
+            cairo_surface_t *surface_dev =
+                    cairo_script_surface_create(script_dev, CAIRO_CONTENT_COLOR_ALPHA,
+                                        bounds.x2 - bounds.x1, bounds.y2 - bounds.y1);
+            cairo_t *cr = cairo_create(surface_dev);
+
+            cairo_set_source_surface(cr, src, 0, 0);
+            cairo_paint(cr);
+            cairo_destroy(cr);
+            cairo_surface_destroy(surface_dev);
+
+            finalBounds.x1 = bounds.x1;
+            finalBounds.x2 = bounds.x2;
+            finalBounds.y1 = height - bounds.y2;
+            finalBounds.y2 = height - bounds.y1;
+     
+            poppler_annot_set_appearance (poppler_annot, POPPLER_ANNOT_APPEARANCE_NORMAL,
+                                        NULL, drawing_string->str, &finalBounds);
+
+            g_string_free(drawing_string, TRUE);                           
+        }                
+    }
 
 	if (EV_IS_ANNOTATION_MARKUP (annot)) {
 		EvAnnotationMarkup *markup = EV_ANNOTATION_MARKUP (annot);

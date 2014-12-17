@@ -21,10 +21,13 @@
 
 #include "config.h"
 
+#include <cairo.h>
+
 #include "ev-annotation.h"
 #include "ev-document-misc.h"
 #include "ev-document-type-builtins.h"
 #include "ev-mapping-tree.h"
+
 
 struct _EvAnnotation {
 	GObject          parent;
@@ -36,6 +39,10 @@ struct _EvAnnotation {
 	gchar           *name;
 	gchar           *modified;
 	GdkRGBA          rgba;
+
+    /* appearances */
+    cairo_surface_t *appearance;
+    EvRectangle      appearance_bounds;
 };
 
 struct _EvAnnotationClass {
@@ -192,6 +199,11 @@ ev_annotation_finalize (GObject *object)
         if (annot->modified) {
                 g_free (annot->modified);
                 annot->modified = NULL;
+        }
+
+        if (annot->appearance) {
+            cairo_surface_destroy(annot->appearance);
+            annot->appearance = NULL;
         }
 
         G_OBJECT_CLASS (ev_annotation_parent_class)->finalize (object);
@@ -682,6 +694,27 @@ ev_annotation_set_rgba (EvAnnotation  *annot,
 	g_object_notify (G_OBJECT (annot), "color");
 
         return TRUE;
+}
+
+void
+ev_annotation_get_appearance (EvAnnotation           *annot,
+                              cairo_surface_t        **src,
+                              EvRectangle            *bounds)
+{
+    *src = annot->appearance;
+    *bounds = annot->appearance_bounds;
+}
+void
+ev_annotation_set_appearance (EvAnnotation           *annot,
+                              cairo_surface_t        *src,
+                              EvRectangle            *bounds)
+{
+    if (annot->appearance) {
+        cairo_surface_destroy(annot->appearance);
+    }
+
+    annot->appearance = src;
+    annot->appearance_bounds = *bounds;
 }
 
 /* EvAnnotationMarkup */

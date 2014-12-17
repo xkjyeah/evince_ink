@@ -160,6 +160,12 @@ void                 ev_annotation_get_rgba                  (EvAnnotation      
                                                               GdkRGBA                *rgba);
 gboolean             ev_annotation_set_rgba                  (EvAnnotation           *annot,
                                                               const GdkRGBA          *rgba);
+void                 ev_annotation_get_appearance            (EvAnnotation           *annot,
+                                                              cairo_surface_t        **src,
+                                                              EvRectangle            *bounds);
+void                 ev_annotation_set_appearance            (EvAnnotation           *annot,
+                                                              cairo_surface_t        *src,
+                                                              EvRectangle            *bounds);
 
 /* EvAnnotationMarkup */
 GType                ev_annotation_markup_get_type           (void) G_GNUC_CONST;
