@@ -3181,6 +3181,9 @@ pdf_document_annotations_remove_annotation (EvDocumentAnnotations *document_anno
         pdf_document->annots_modified = TRUE;
 }
 
+/**
+ * Passed as argument to cairo_script_create_for_stream. Takes a (char *, length) and appends it to a string 
+ * */
 static cairo_status_t write_to_string(void *drawing_void, const unsigned char *data, unsigned int length)
 {
     GString *drawing = (GString*)drawing_void;
@@ -3236,86 +3239,138 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 			break;
         case EV_ANNOTATION_TYPE_INK: {
             EvAnnotationInk *ink = EV_ANNOTATION_INK(annot);
-            int             width;
+            double             width;
             gdouble         height;
             GdkColor        gdk_color;
             GArray          *paths;
             PopplerColor    poppler_color;
             PopplerAnnotPaths *poppler_paths;
+            PopplerRectangle   bbox = { /* incredibly large values... */
+                1e100,
+                1e100,
+                -1e100,
+                -1e100
+            };
 
+            // Steps:
+            // 1. Find bounding box
+            // 2. Convert from EV coordinates to Poppler coordinates
+            // 3. Construct the appearance stream
+           
             // read old values
             ev_annotation_ink_get_width(ink, &width);
             ev_annotation_get_color(EV_ANNOTATION(ink), &gdk_color);
             ev_annotation_ink_get_paths(ink, &paths);
             poppler_page_get_size (POPPLER_PAGE (page->backend_page), NULL, &height);
 
-            // convert values
-            poppler_color.red = gdk_color.red;
-            poppler_color.green = gdk_color.green;
-            poppler_color.blue = gdk_color.blue;
+            // 1. Find bounding box
+            {
+                for (int i=0; i<paths->len; i++) {
+                    GArray *path = g_array_index(paths, GArray*, i);
 
-            poppler_paths = poppler_annot_paths_new (paths->len);
-            for (int i=0; i<paths->len; i++) {
-                GArray *path = g_array_index (paths, GArray*, i);
-                PopplerPoint *points = new PopplerPoint[path->len/2];
+                    for (int j=0; j<path->len; j += 2) {
+                        double x, y;
 
-                // or use a memcpy...
-//                memcpy (points, path->data, sizeof(double) * path->len);
-                for (int j=0; j<path->len; j+=2) {
-                    points[j / 2].x = g_array_index (path, double, j);
-                    points[j / 2].y = height - g_array_index (path, double, j+1);
+                        x = g_array_index(path, double, j);
+                        y = g_array_index(path, double, j+1);
+
+                        // update bounding box
+                        bbox.x1 = MIN(bbox.x1, x - width);
+                        bbox.x2 = MAX(bbox.x2, x + width);
+                        bbox.y1 = MIN(bbox.y1, height - y - width);
+                        bbox.y2 = MAX(bbox.y2, height - y + width);
+                    }
                 }
-                poppler_annot_paths_set (poppler_paths,
-                        i, poppler_annot_path_new (points, path->len/2));
-
-                delete[] points;
             }
 
-            // set values
-            poppler_annot = poppler_annot_ink_new (pdf_document->document, &poppler_rect);
-            poppler_annot_set_color (poppler_annot, &poppler_color);
-            poppler_annot_border_set_width (poppler_annot_get_border (poppler_annot), width);
-            poppler_annot_ink_set_ink_list (POPPLER_ANNOT_INK(poppler_annot), poppler_paths);
+            // 2. convert values
+            {
+                poppler_color.red = gdk_color.red;
+                poppler_color.green = gdk_color.green;
+                poppler_color.blue = gdk_color.blue;
 
+                poppler_paths = poppler_annot_paths_new (paths->len);
+                for (int i=0; i<paths->len; i++) {
+                    GArray *path = g_array_index (paths, GArray*, i);
+                    PopplerPoint *points = new PopplerPoint[path->len/2];
+
+                    // or use a memcpy...
+    //                memcpy (points, path->data, sizeof(double) * path->len);
+                    for (int j=0; j<path->len; j+=2) {
+                        points[j / 2].x = g_array_index (path, double, j);
+                        points[j / 2].y = height - g_array_index (path, double, j+1);
+                    }
+                    poppler_annot_paths_set (poppler_paths,
+                            i, poppler_annot_path_new (points, path->len/2));
+
+                    delete[] points;
+                }
+
+                // set values
+                poppler_annot = poppler_annot_ink_new (pdf_document->document, &poppler_rect);
+                poppler_annot_set_color (poppler_annot, &poppler_color);
+                poppler_annot_border_set_width (poppler_annot_get_border (poppler_annot), width);
+                poppler_annot_ink_set_ink_list (POPPLER_ANNOT_INK(poppler_annot), poppler_paths);
+            }
+
+            { // 3. Construct a PDF stream
+                GString *appStream = g_string_new(0);
+
+                // Draw on the surface
+                // save state
+                g_string_append(appStream, "q ");
+
+                // set color:
+                // FIXME: Opacity
+                g_string_append_printf(appStream, "%f %f %f RG ", 
+                                      poppler_color.red / 65535.0,
+                                      poppler_color.green / 65535.0,
+                                      poppler_color.blue / 65535.0,
+                                      0.5,
+                                      0.5);
+                // set line width:
+                g_string_append_printf(appStream, "%f w ",
+                                      width);
+                // set dash, line cap, line join styles, miter limit
+                g_string_append(appStream, "0 J 0 j [] 0 d 10 M ");
+
+                // draw path
+                for (int i=0; i < poppler_annot_paths_get_length(poppler_paths); i++) {
+                    PopplerAnnotPath *p = poppler_annot_paths_get(poppler_paths, i);
+
+                    for (int j=0; j < poppler_annot_path_get_length(p); j++) {
+                        double x, y;
+
+                        poppler_annot_path_get(p, j, &x, &y);
+
+                        x -= bbox.x1;
+                        y -= bbox.y1;
+
+                        if (j == 0) {
+                            // move_to(x, y)
+                            g_string_append_printf(appStream, "%f %f m ", x, y);
+                        }
+                        else {
+                            // line_to(x, y)
+                            g_string_append_printf(appStream, "%f %f l ", x, y);
+                        }
+                    }
+                }
+                // stroke(), restore()
+                g_string_append(appStream, "S Q ");
+
+                poppler_annot_set_appearance (poppler_annot, POPPLER_ANNOT_APPEARANCE_NORMAL,
+                                            NULL, appStream->str, &bbox);
+
+                g_string_free(appStream, TRUE);
+            } /* end: appearance */
             }
             break;
 		default:
 			g_assert_not_reached ();
 	}
  
-    { // appearances 
-        cairo_surface_t *src;
-        EvRectangle bounds;
-
-        ev_annotation_get_appearance(annot, &src, &bounds);
-
-        if (src) {
-            GString *drawing_string = g_string_new("");
-            PopplerRectangle finalBounds;
-
-            cairo_device_t *script_dev = 
-                    cairo_script_create_for_stream(write_to_string, drawing_string);
-            cairo_surface_t *surface_dev =
-                    cairo_script_surface_create(script_dev, CAIRO_CONTENT_COLOR_ALPHA,
-                                        bounds.x2 - bounds.x1, bounds.y2 - bounds.y1);
-            cairo_t *cr = cairo_create(surface_dev);
-
-            cairo_set_source_surface(cr, src, 0, 0);
-            cairo_paint(cr);
-            cairo_destroy(cr);
-            cairo_surface_destroy(surface_dev);
-
-            finalBounds.x1 = bounds.x1;
-            finalBounds.x2 = bounds.x2;
-            finalBounds.y1 = height - bounds.y2;
-            finalBounds.y2 = height - bounds.y1;
-     
-            poppler_annot_set_appearance (poppler_annot, POPPLER_ANNOT_APPEARANCE_NORMAL,
-                                        NULL, drawing_string->str, &finalBounds);
-
-            g_string_free(drawing_string, TRUE);                           
-        }                
-    }
+    
 
 	if (EV_IS_ANNOTATION_MARKUP (annot)) {
 		EvAnnotationMarkup *markup = EV_ANNOTATION_MARKUP (annot);

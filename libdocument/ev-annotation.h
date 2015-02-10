@@ -161,10 +161,10 @@ void                 ev_annotation_get_rgba                  (EvAnnotation      
 gboolean             ev_annotation_set_rgba                  (EvAnnotation           *annot,
                                                               const GdkRGBA          *rgba);
 void                 ev_annotation_get_appearance            (EvAnnotation           *annot,
-                                                              cairo_surface_t        **src,
+                                                              const char     **src,
                                                               EvRectangle            *bounds);
 void                 ev_annotation_set_appearance            (EvAnnotation           *annot,
-                                                              cairo_surface_t        *src,
+                                                              const char     *src,
                                                               EvRectangle            *bounds);
 
 /* EvAnnotationMarkup */
@@ -225,9 +225,9 @@ void                ev_annotation_ink_set_widths            (EvAnnotationInk *an
 gboolean            ev_annotation_ink_get_operator          (EvAnnotationInk *annot,
                                                             int *op);
 gboolean            ev_annotation_ink_get_width             (EvAnnotationInk *annot,
-                                                            int *width);
+                                                            double *width);
 void                ev_annotation_ink_set_width             (EvAnnotationInk *annot,
-                                            				int width);
+                                            				double width);
 void                ev_annotation_ink_set_operator          (EvAnnotationInk *annot,
 				                                            int op);
 void                ev_annotation_ink_set_paths             (EvAnnotationInk *annot,

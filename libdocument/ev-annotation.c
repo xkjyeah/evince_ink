@@ -41,7 +41,8 @@ struct _EvAnnotation {
 	GdkRGBA          rgba;
 
     /* appearances */
-    cairo_surface_t *appearance;
+    // cairo_surface_t *appearance;
+    char            *appearance;
     EvRectangle      appearance_bounds;
 };
 
@@ -202,7 +203,8 @@ ev_annotation_finalize (GObject *object)
         }
 
         if (annot->appearance) {
-            cairo_surface_destroy(annot->appearance);
+//            cairo_surface_destroy(annot->appearance);
+            g_free(annot->appearance);           
             annot->appearance = NULL;
         }
 
@@ -698,23 +700,29 @@ ev_annotation_set_rgba (EvAnnotation  *annot,
 
 void
 ev_annotation_get_appearance (EvAnnotation           *annot,
-                              cairo_surface_t        **src,
+//                              cairo_surface_t        **src,
+                              const char            **appearance,
                               EvRectangle            *bounds)
 {
-    *src = annot->appearance;
+    *appearance = annot->appearance;
     *bounds = annot->appearance_bounds;
 }
 void
 ev_annotation_set_appearance (EvAnnotation           *annot,
-                              cairo_surface_t        *src,
+                              const char             *appearance,
                               EvRectangle            *bounds)
 {
     if (annot->appearance) {
-        cairo_surface_destroy(annot->appearance);
+        g_free(annot->appearance);
     }
 
-    annot->appearance = src;
+    GString *str = g_string_new(appearance);
+
+    annot->appearance = str->str;
     annot->appearance_bounds = *bounds;
+
+    g_string_free(str, FALSE);
+    //cairo_surface_reference(src);
 }
 
 /* EvAnnotationMarkup */
@@ -1540,7 +1548,7 @@ ev_annotation_ink_set_widths (	EvAnnotationInk *annot,
 
 gboolean
 ev_annotation_ink_get_width (	EvAnnotationInk *annot,
-                                int *width )
+                                double *width )
 {
     if (width) {
         *width = annot->width;
@@ -1551,7 +1559,7 @@ ev_annotation_ink_get_width (	EvAnnotationInk *annot,
 
 void
 ev_annotation_ink_set_width (	EvAnnotationInk *annot,
-				int width )
+				double width )
 {
 	annot->width = width;
 	if (annot->widths) {

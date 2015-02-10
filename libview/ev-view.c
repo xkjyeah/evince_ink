@@ -3201,16 +3201,29 @@ ev_view_handle_annotation (EvView       *view,
 }
 
 /* Create the ink annotation based on the
- * path data in view->drawing_data.ink */
+ * path data in view->drawing_data.ink.
+ *
+ *  This is to be done by
+ *
+ *  (a) Converting the screen coordinates to page coordinates
+ *  (b) setting the bounding box
+ *  (c) setting the Cairo surface, *relative* to the bounding box
+ *
+ *
+ * */
 static void
-create_ink_annotation (EvView    *view, EvPage *page, EvAnnotationInk **r_ink, EvRectangle *rect)
+create_ink_annotation (EvView           *view,
+                       EvPage           *page,
+                       EvAnnotationInk **r_ink,
+                       EvRectangle      *rect)
 {
     EvAnnotationInk *ink = EV_ANNOTATION_INK(ev_annotation_ink_new(page));
     guint32 i,j;
 
     ev_annotation_set_color (EV_ANNOTATION(ink), &view->drawing_data.ink.color);
     ev_annotation_ink_set_width (ink, view->drawing_data.ink.width);
-    //
+
+    /* Converting screen coordinates to page coordinates */
     // for path in paths
     //      for x,y in path
     //          convert x,y to page coordinates
@@ -3224,47 +3237,62 @@ create_ink_annotation (EvView    *view, EvPage *page, EvAnnotationInk **r_ink, E
         return;
     }
 
-    for (i=0; i<vpaths->len; i++) {
-        GArray *vpath = g_array_index(vpaths, GArray*, i);
-        GArray *fpath = g_array_new(0, 0, sizeof(gdouble));
-        for (j=0; j<vpath->len; j += 2) {
-            int x,y;
-            x = g_array_index(vpath, int, j);
-            y = g_array_index(vpath, int, j + 1);
+    /* 
+     * Input: vpaths, vpath (screen coordinates)
+     * Output:
+     *  - fpaths, fpath (page coordinates)
+     *  - rect -- bounding box. {min,max}_{x,y}
+     *  - vpaths, vpath are free()-d
+     * */
+    {
+        for (i=0; i<vpaths->len; i++) {
+            GArray *vpath = g_array_index(vpaths, GArray*, i);
+            GArray *fpath = g_array_new(0, 0, sizeof(gdouble));
+            for (j=0; j<vpath->len; j += 2) {
+                int x,y;
+                x = g_array_index(vpath, int, j);
+                y = g_array_index(vpath, int, j + 1);
 
-            // convert to doc coords
-            gdouble fx, fy;
-            gint dx, dy;
-            int doc_page;
+                // convert to doc coords
+                gdouble fx, fy;
+                gint dx, dy;
+                int doc_page;
 
-            get_doc_point_from_location(view, x, y, &doc_page, &dx, &dy);
-            fx = dx;
-            fy = dy;
-            min_x = MIN(min_x, fx);
-            min_y = MIN(min_y, fy);
-            max_x = MAX(max_x, fx);
-            max_y = MAX(max_y, fy);
+                get_doc_point_from_location(view, x, y, &doc_page, &dx, &dy);
+                fx = dx;
+                fy = dy;
+                min_x = MIN(min_x, fx);
+                min_y = MIN(min_y, fy);
+                max_x = MAX(max_x, fx);
+                max_y = MAX(max_y, fy);
 
-            g_array_append_val(fpath, fx);
-            g_array_append_val(fpath, fy);
+                g_array_append_val(fpath, fx);
+                g_array_append_val(fpath, fy);
+            }
+            g_array_free(vpath, TRUE);
+            g_array_append_val(fpaths, fpath);
         }
-        g_array_free(vpath, TRUE);
-        g_array_append_val(fpaths, fpath);
-    }
-    g_array_free(vpaths, TRUE);
-    ev_annotation_ink_set_paths(ink, fpaths);
+        g_array_free(vpaths, TRUE);
+        ev_annotation_ink_set_paths(ink, fpaths);
 
-    for (i=0; i<fpaths->len; i++) {
-        GArray *fpath = g_array_index(fpaths, GArray*, i);
-        g_array_unref(fpath);
+        *r_ink = ink;
+        // adjust bounding box to have 
+        rect->x1 = min_x - view->drawing_data.ink.width;
+        rect->y1 = min_y - view->drawing_data.ink.width;
+        rect->x2 = max_x + view->drawing_data.ink.width;
+        rect->y2 = max_y + view->drawing_data.ink.width;
     }
-    g_array_unref(fpaths);
 
-    *r_ink = ink;
-    rect->x1 = min_x - view->drawing_data.ink.width;
-    rect->y1 = min_y - view->drawing_data.ink.width;
-    rect->x2 = max_x - view->drawing_data.ink.width;
-    rect->y2 = max_y - view->drawing_data.ink.width;
+    // Cleanup
+    // Input:   fpaths
+    // Output:  unref()-ed fpaths
+    {
+        for (i=0; i<fpaths->len; i++) {
+            GArray *fpath = g_array_index(fpaths, GArray*, i);
+            g_array_unref(fpath);
+        }
+        g_array_unref(fpaths);
+    }
 }
 
 
