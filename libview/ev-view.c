@@ -3083,54 +3083,54 @@ get_annotation_mapping_at_location (EvView *view,
 	annotations_mapping = ev_page_cache_get_annot_mapping (view->page_cache, *page);
 
 	if (annotations_mapping) {
-        EvMapping *annotation_mapping = ev_mapping_list_get(annotations_mapping, x_new, y_new);
-        /** FIXME: annotation-specific implementation to test the quadtree
+        GList *annotation_list = ev_mapping_list_get_all(annotations_mapping, x_new, y_new);
+        GList *list = annotation_list;
+        EvMapping *mapping_found = NULL;
+        /** annotation-specific implementation to test the quadtree
          *  
          *  Quadtree should be used for *all* elements instead of just
          *  Ink annotations
          *
+         *  FIXME: should just build this into mapping_list,
+         *  instead of iterating over the loop twice
+         *
          * **/
+        for ( ; list; list = list->next ) {
+            EvMapping *annotation_mapping = list->data;
+            EvAnnotation *annot = annotation_mapping->data;
 
-        if (!annotation_mapping)
-            return NULL;
-        
-        EvAnnotation *annot = annotation_mapping->data;
-
-        if ( ! EV_IS_ANNOTATION_INK(annot) ) {
-            return annotation_mapping;
-        }
-        else { // Determine if x,y lies on annotation drawing
-            // debug printf
-            //
-            if (FALSE) {
-                EvAnnotationInk *ink = EV_ANNOTATION_INK(annot);
-                fprintf(stderr, " Mouse (x,y) = (%i, %i)\n", x_new, y_new);
-                fprintf(stderr, " Annotation segments:");
+            if ( ! EV_IS_ANNOTATION_INK(annot) ) {
+                mapping_found = annotation_mapping;
+            }
+            else { // Determine if x,y lies on annotation drawing
+                // debug printf
+                //
+                if (FALSE) {
+                    EvAnnotationInk *ink = EV_ANNOTATION_INK(annot);
+                    fprintf(stderr, " Mouse (x,y) = (%i, %i)\n", x_new, y_new);
+                    fprintf(stderr, " Annotation segments:");
+                    
+                    GArray *paths;
+                    ev_annotation_ink_get_paths(ink, &paths);
+                    int i,j;
+                    for (i=0;i<paths->len; i++) {
+                        GArray *path = g_array_index(paths, GArray*, i);
+                        fprintf(stderr, "   Segment %i\n    ", i);
+                        for (j=0; j<path->len; j+=2)
+                            fprintf(stderr, "(%lf, %lf) ", g_array_index(path, gdouble, j), g_array_index(path, gdouble, j+1));
+                        fprintf(stderr, "\n");
+                    }
+                }
                 
-                GArray *paths;
-                ev_annotation_ink_get_paths(ink, &paths);
-                int i,j;
-                for (i=0;i<paths->len; i++) {
-                    GArray *path = g_array_index(paths, GArray*, i);
-                    fprintf(stderr, "   Segment %i\n    ", i);
-                    for (j=0; j<path->len; j+=2)
-                        fprintf(stderr, "(%lf, %lf) ", g_array_index(path, gdouble, j), g_array_index(path, gdouble, j+1));
-                    fprintf(stderr, "\n");
+                if (ev_annotation_ink_is_hit( EV_ANNOTATION_INK(annot), x_new, y_new )) {
+                    mapping_found = annotation_mapping;
                 }
             }
-            
-            
-            if (ev_annotation_ink_is_hit( EV_ANNOTATION_INK(annot), x_new, y_new )) {
-                return annotation_mapping;
-            }
-            else {
-                return NULL;
-            }
         }
+        if (annotation_list)
+            g_list_free(annotation_list);
 
-        return NULL;
-
-		//return ev_mapping_list_get (annotations_mapping, x_new, y_new);
+        return mapping_found;
     }
 
 	return NULL;
@@ -3259,8 +3259,8 @@ create_ink_annotation (EvView           *view,
                 int doc_page;
 
                 get_doc_point_from_location(view, x, y, &doc_page, &dx, &dy);
-                fx = dx;
-                fy = dy;
+                fx = dx + 0.5;
+                fy = dy + 0.5;
                 min_x = MIN(min_x, fx);
                 min_y = MIN(min_y, fy);
                 max_x = MAX(max_x, fx);

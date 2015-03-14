@@ -1587,7 +1587,7 @@ is_on_line(gpointer a, gdouble x, gdouble y, gpointer data)
     EvAnnotationInk *annot = EV_ANNOTATION_INK(data);
     EvRectangle *rect = (EvRectangle*) a;
 
-    gdouble halfwidth = annot->width * 0.5;
+    gdouble halfwidth = annot->width * 0.5 * 3;
     gdouble halfwidthsq = halfwidth * halfwidth;
 
     gdouble sq_line_length = squared_distance(rect->x2 - rect->x1, rect->y2 - rect->y1);

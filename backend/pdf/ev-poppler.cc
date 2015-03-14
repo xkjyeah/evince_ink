@@ -3343,8 +3343,8 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 
                         poppler_annot_path_get(p, j, &x, &y);
 
-                        x -= bbox.x1;
-                        y -= bbox.y1;
+                        x = x - bbox.x1;
+                        y = y - bbox.y1;
 
                         if (j == 0) {
                             // move_to(x, y)
