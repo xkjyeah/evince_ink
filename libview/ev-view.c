@@ -2116,8 +2116,14 @@ ev_view_handle_cursor_over_xy (EvView *view, gint x, gint y)
 			ev_view_set_cursor (view, EV_VIEW_CURSOR_NORMAL);
 	}
 
+// FIXME: event compression doesn't play well with HINT_MASK,
+// which is activated by tooltips automatically
+//
+// Tooltips will have to be implemented manually.
+#if 0   
 	if (link || annot)
 		g_object_set (view, "has-tooltip", TRUE, NULL);
+#endif
 }
 
 /*** Images ***/
@@ -2841,7 +2847,6 @@ ev_view_window_child_put (EvView    *view,
 		gtk_widget_show (window);
 	else
 		gtk_widget_hide (window);
-
 	view->window_children = g_list_append (view->window_children, child);
 }
 
@@ -3217,25 +3222,22 @@ create_ink_annotation (EvView           *view,
                        EvAnnotationInk **r_ink,
                        EvRectangle      *rect)
 {
-    EvAnnotationInk *ink = EV_ANNOTATION_INK(ev_annotation_ink_new(page));
-    guint32 i,j;
+    GArray *vpaths = view->drawing_data.ink.paths;
+    if (!vpaths->len) {
+        *r_ink = NULL;
+        return;
+    }
 
-    ev_annotation_set_color (EV_ANNOTATION(ink), &view->drawing_data.ink.color);
-    ev_annotation_ink_set_width (ink, view->drawing_data.ink.width);
+    guint32 i,j;
 
     /* Converting screen coordinates to page coordinates */
     // for path in paths
     //      for x,y in path
     //          convert x,y to page coordinates
     //          add x,y to other path
-    GArray *vpaths = view->drawing_data.ink.paths;
     GArray *fpaths = g_array_new(0, 0, sizeof(GArray*));
     double min_x = 1e99, min_y = 1e99, max_x = -1e99, max_y = -1e99;
 
-    if (!vpaths->len) {
-        *r_ink = NULL;
-        return;
-    }
 
     /* 
      * Input: vpaths, vpath (screen coordinates)
@@ -3247,7 +3249,12 @@ create_ink_annotation (EvView           *view,
     {
         for (i=0; i<vpaths->len; i++) {
             GArray *vpath = g_array_index(vpaths, GArray*, i);
+            if (vpath->len <= 2) {
+                continue;
+            }
+
             GArray *fpath = g_array_new(0, 0, sizeof(gdouble));
+
             for (j=0; j<vpath->len; j += 2) {
                 int x,y;
                 x = g_array_index(vpath, int, j);
@@ -3273,14 +3280,24 @@ create_ink_annotation (EvView           *view,
             g_array_append_val(fpaths, fpath);
         }
         g_array_free(vpaths, TRUE);
-        ev_annotation_ink_set_paths(ink, fpaths);
 
-        *r_ink = ink;
+        if (fpaths->len > 0) {
+            EvAnnotationInk *ink = EV_ANNOTATION_INK(ev_annotation_ink_new(page));
+            ev_annotation_set_color (EV_ANNOTATION(ink), &view->drawing_data.ink.color);
+            ev_annotation_ink_set_width (ink, view->drawing_data.ink.width);
+            ev_annotation_ink_set_paths(ink, fpaths);
+
+            *r_ink = ink;
+
+            rect->x1 = min_x - view->drawing_data.ink.width;
+            rect->y1 = min_y - view->drawing_data.ink.width;
+            rect->x2 = max_x + view->drawing_data.ink.width;
+            rect->y2 = max_y + view->drawing_data.ink.width;
+        }
+        else {
+            *r_ink = 0;
+        }
         // adjust bounding box to have 
-        rect->x1 = min_x - view->drawing_data.ink.width;
-        rect->y1 = min_y - view->drawing_data.ink.width;
-        rect->x2 = max_x + view->drawing_data.ink.width;
-        rect->y2 = max_y + view->drawing_data.ink.width;
     }
 
     // Cleanup
@@ -3346,6 +3363,7 @@ ev_view_create_annotation (EvView          *view,
 	}
 	g_object_unref (page);
 
+    // Handle popups
     switch (annot_type) {
 	case EV_ANNOTATION_TYPE_TEXT: {
             popup_rect.x1 = doc_rect.x2;
@@ -3362,6 +3380,20 @@ ev_view_create_annotation (EvView          *view,
         }
         break;
     case EV_ANNOTATION_TYPE_INK:
+        {
+            popup_rect.x1 = page_area.width - 210;
+            popup_rect.x2 = page_area.width - 10;
+            popup_rect.y1 = doc_rect.y1;
+            popup_rect.y2 = popup_rect.y1 + 150;
+            g_object_set (annot,
+                      "rectangle", &popup_rect,
+                      "has_popup", TRUE,
+                      "popup_is_open", FALSE,
+                      "label", g_get_real_name (),
+                      "opacity", 1.0,
+                      NULL);
+              break;
+        }
     default:
         break;
     }
@@ -3426,12 +3458,14 @@ ev_view_begin_add_annotation (EvView          *view,
     case EV_ANNOTATION_TYPE_INK: {
         // TODO: change the colour through settings 
         GdkColor default_color = {0, 65535, 0, 0};
-        view->drawing_data.ink.paths = g_array_new(0, 0, sizeof(GArray*));
+        view->drawing_data.ink.paths = g_array_sized_new(0, 0, sizeof(GArray*), 16);
         view->drawing_data.ink.color = default_color;
         view->drawing_data.ink.width = 1;
 
+        /* WARNING: if you enable tooltips this will disable your
+         * motion-notify events */
         gdk_window_set_event_compression(
-            gtk_widget_get_window (GTK_WIDGET(view)), TRUE );
+            gtk_widget_get_window (GTK_WIDGET(view)), FALSE);
         }
         break;
     default:
@@ -4342,24 +4376,24 @@ should_draw_caret_cursor (EvView  *view,
 static void
 redraw_ink_annot(EvView *view)
 {
-    GdkRectangle rect;
     GArray *paths = view->drawing_data.ink.paths;
-    int width = (int)(ceil(view->drawing_data.ink.width * view->scale)); 
     GArray *path = g_array_index(paths, GArray*, paths->len - 1);
 
-    width = MAX(width * 2, 2);
-    
     if (path->len >= 4) {
+        int stroke_width = (int)(ceil(view->drawing_data.ink.width * view->scale)); 
+        stroke_width = MAX(stroke_width * 2, 2);
+    
         int x1, x2, y1, y2;
+        int x, y, width, height;
         x1 = g_array_index(path, int, path->len - 4);
         y1 = g_array_index(path, int, path->len - 3);
         x2 = g_array_index(path, int, path->len - 2);
         y2 = g_array_index(path, int, path->len - 1);
-        rect.x = MIN(x1, x2) - width;
-        rect.y = MIN(y1, y2) - width;
-        rect.width = abs(x1 - x2) + 2 * width;
-        rect.height = abs(y1 - y2) + 2 * width;
-        gdk_window_invalidate_rect(gtk_widget_get_window(GTK_WIDGET(view)), &rect, TRUE);
+        x = MIN(x1, x2) - stroke_width;
+        y = MIN(y1, y2) - stroke_width;
+        width = abs(x1 - x2) + 2 * stroke_width;
+        height = abs(y1 - y2) + 2 * stroke_width;
+        gtk_widget_queue_draw_area(GTK_WIDGET(view), x, y, width, height);
     }
 }
 
@@ -4368,9 +4402,10 @@ drawing_ink_annot(EvView *view,
                     GdkEventMotion *event)
 {
     int x, y;
+    GdkModifierType state;
 
     if (event->is_hint) {
-	    ev_document_misc_get_pointer_position (GTK_WIDGET(view), &x, &y);
+        gdk_window_get_device_position(event->window, event->device, &x, &y, &state);	    
     } else {
 	    x = event->x;
 	    y = event->y;
@@ -4383,7 +4418,6 @@ drawing_ink_annot(EvView *view,
     g_array_append_val(path, y);
 
     redraw_ink_annot(view);
-
     return FALSE;
 }
 
@@ -7181,6 +7215,8 @@ ev_view_parent_set (GtkWidget *widget,
 	g_assert (!parent || GTK_IS_SCROLLED_WINDOW (parent));
 }
 
+
+
 static void
 ev_view_class_init (EvViewClass *class)
 {
@@ -7499,7 +7535,6 @@ ev_view_init (EvView *view)
 			       GDK_SMOOTH_SCROLL_MASK |
 			       GDK_KEY_PRESS_MASK |
 			       GDK_POINTER_MOTION_MASK |
-			       GDK_POINTER_MOTION_HINT_MASK |
 			       GDK_ENTER_NOTIFY_MASK |
 			       GDK_LEAVE_NOTIFY_MASK);
 

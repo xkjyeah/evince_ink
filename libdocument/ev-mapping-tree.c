@@ -261,8 +261,9 @@ ev_mapping_tree_get (EvMappingTree *mapping_tree,
 {
     g_return_val_if_fail (mapping_tree != NULL, NULL);
 
-    g_return_val_if_fail (ev_mapping_tree_in_extents(mapping_tree,x,y), NULL);
-
+    if (!ev_mapping_tree_in_extents(mapping_tree,x,y)) {
+        return NULL;
+    }
 
     EvPoint normalized = ev_mapping_tree_normalize_coordinates(mapping_tree,
                             x,y);
