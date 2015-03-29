@@ -44,6 +44,7 @@ enum {
 enum {
 	ANNOT_ACTIVATED,
 	BEGIN_ANNOT_ADD,
+    BEGIN_ANNOT_INK_ADD,
 	ANNOT_ADD_CANCELLED,
 	N_SIGNALS
 };
@@ -56,6 +57,7 @@ struct _EvSidebarAnnotationsPrivate {
 	GtkWidget   *palette;
 	GtkToolItem *annot_text_item;
 	GtkToolItem *annot_ink_item;
+	GtkToolItem *annot_highlight_item;
 
 	EvJob       *job;
 	guint        selection_changed_id;
@@ -167,6 +169,41 @@ ev_sidebar_annotations_add_annots_list (EvSidebarAnnotations *ev_annots)
 }
 
 static void
+ev_sidebar_annotations_ink_annot_button_toggled (GtkToggleToolButton  *toolbutton,
+						  EvSidebarAnnotations *sidebar_annots)
+{
+	if (!gtk_toggle_tool_button_get_active (toolbutton)) {
+		g_signal_emit (sidebar_annots, signals[ANNOT_ADD_CANCELLED], 0, NULL);
+		return;
+	}
+
+	if (GTK_TOOL_ITEM (toolbutton) == sidebar_annots->priv->annot_ink_item) {
+        sidebar_annots->brush.color.red = 65535;
+        sidebar_annots->brush.color.green = 0;
+        sidebar_annots->brush.color.blue = 0;
+        sidebar_annots->brush.width = 1;
+        sidebar_annots->brush.ink_operator = EV_ANNOTATION_INK_OPERATOR_OVER;
+    }
+	else if (GTK_TOOL_ITEM (toolbutton) == sidebar_annots->priv->annot_highlight_item) {
+        sidebar_annots->brush.color.red = 65535;
+        sidebar_annots->brush.color.green = 65535;
+        sidebar_annots->brush.color.blue = 0;
+        sidebar_annots->brush.width = 15;
+        sidebar_annots->brush.ink_operator = EV_ANNOTATION_INK_OPERATOR_MULTIPLY;
+    }
+	else {
+        sidebar_annots->brush.color.red = 0;
+        sidebar_annots->brush.color.green = 0;
+        sidebar_annots->brush.color.blue = 0;
+        sidebar_annots->brush.width = 1;
+        sidebar_annots->brush.ink_operator = EV_ANNOTATION_INK_OPERATOR_OVER;
+    }
+
+	g_signal_emit (sidebar_annots, signals[BEGIN_ANNOT_INK_ADD], 0);
+}
+
+
+static void
 ev_sidebar_annotations_text_annot_button_toggled (GtkToggleToolButton  *toolbutton,
 						  EvSidebarAnnotations *sidebar_annots)
 {
@@ -177,12 +214,12 @@ ev_sidebar_annotations_text_annot_button_toggled (GtkToggleToolButton  *toolbutt
 		return;
 	}
 
-	if (GTK_TOOL_ITEM (toolbutton) == sidebar_annots->priv->annot_text_item)
+	if (GTK_TOOL_ITEM (toolbutton) == sidebar_annots->priv->annot_text_item) {
 		annot_type = EV_ANNOTATION_TYPE_TEXT;
-	else if (GTK_TOOL_ITEM (toolbutton) == sidebar_annots->priv->annot_ink_item)
-		annot_type = EV_ANNOTATION_TYPE_INK;
-	else
+    }
+	else {
 		annot_type = EV_ANNOTATION_TYPE_UNKNOWN;
+    }
 
 	g_signal_emit (sidebar_annots, signals[BEGIN_ANNOT_ADD], 0, annot_type);
 }
@@ -221,12 +258,23 @@ ev_sidebar_annotations_add_annots_palette (EvSidebarAnnotations *ev_annots)
 	gtk_widget_show (GTK_WIDGET (item));
 
 	item = gtk_toggle_tool_button_new ();
-	gtk_tool_button_set_icon_name (GTK_TOOL_BUTTON (item), "document-new-symbolic");
-	gtk_tool_button_set_label (GTK_TOOL_BUTTON (item), _("Ink"));
-	gtk_widget_set_tooltip_text (GTK_WIDGET (item), _("Add ink annotation"));
+	gtk_tool_button_set_icon_name (GTK_TOOL_BUTTON (item), "red-ink");
+	gtk_tool_button_set_label (GTK_TOOL_BUTTON (item), _("Red ink"));
+	gtk_widget_set_tooltip_text (GTK_WIDGET (item), _("Ink annotation"));
 	ev_annots->priv->annot_ink_item = item;
 	g_signal_connect (item, "toggled",
-			  G_CALLBACK (ev_sidebar_annotations_text_annot_button_toggled),
+			  G_CALLBACK (ev_sidebar_annotations_ink_annot_button_toggled),
+			  ev_annots);
+	gtk_tool_item_group_insert (GTK_TOOL_ITEM_GROUP (group), item, -1);
+	gtk_widget_show (GTK_WIDGET (item));
+
+	item = gtk_toggle_tool_button_new ();
+	gtk_tool_button_set_icon_name (GTK_TOOL_BUTTON (item), "highlighter");
+	gtk_tool_button_set_label (GTK_TOOL_BUTTON (item), _("Highlight"));
+	gtk_widget_set_tooltip_text (GTK_WIDGET (item), _("Highlight annotation"));
+	ev_annots->priv->annot_highlight_item = item;
+	g_signal_connect (item, "toggled",
+			  G_CALLBACK (ev_sidebar_annotations_ink_annot_button_toggled),
 			  ev_annots);
 	gtk_tool_item_group_insert (GTK_TOOL_ITEM_GROUP (group), item, -1);
 	gtk_widget_show (GTK_WIDGET (item));
@@ -297,6 +345,15 @@ ev_sidebar_annotations_class_init (EvSidebarAnnotationsClass *klass)
 			      g_cclosure_marshal_VOID__POINTER,
 			      G_TYPE_NONE, 1,
 			      G_TYPE_POINTER);
+	signals[BEGIN_ANNOT_INK_ADD] =
+		g_signal_new ("begin-annot-ink-add",
+			      G_TYPE_FROM_CLASS (g_object_class),
+			      G_SIGNAL_RUN_LAST | G_SIGNAL_ACTION,
+			      G_STRUCT_OFFSET (EvSidebarAnnotationsClass, begin_annot_ink_add),
+			      NULL, NULL,
+			      g_cclosure_marshal_VOID__VOID,
+			      G_TYPE_NONE, 0,
+			      G_TYPE_NONE);
 	signals[BEGIN_ANNOT_ADD] =
 		g_signal_new ("begin-annot-add",
 			      G_TYPE_FROM_CLASS (g_object_class),

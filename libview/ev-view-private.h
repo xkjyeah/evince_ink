@@ -216,6 +216,7 @@ struct _EvView {
             GArray*     paths;
             GdkColor    color;
             gdouble     width;
+            EvAnnotationInkOperator ink_operator;
         } ink;
     } drawing_data;
     EvAnnotation        *drawing_annot;

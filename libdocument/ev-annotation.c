@@ -1569,11 +1569,20 @@ ev_annotation_ink_set_width (	EvAnnotationInk *annot,
 }
 
 
+gboolean
+ev_annotation_ink_get_operator (EvAnnotationInk *annot,
+				EvAnnotationInkOperator *op)
+{
+    *op = annot->operator;
+
+    return TRUE;
+}
+
 void
 ev_annotation_ink_set_operator (EvAnnotationInk *annot,
-				int op)
+				EvAnnotationInkOperator op)
 {
-	annot->operator = (EvAnnotationInkOperator)op;
+	annot->operator = op;
 }
 
 static gdouble squared_distance(gdouble x, gdouble y)

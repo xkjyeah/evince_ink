@@ -129,8 +129,16 @@ typedef enum {
 
 typedef enum {
 	EV_ANNOTATION_INK_OPERATOR_OVER,
-	EV_ANNOTATION_INK_OPERATOR_MULTIPLY
+	EV_ANNOTATION_INK_OPERATOR_MULTIPLY,
+	EV_ANNOTATION_INK_OPERATOR_DARKEN,
+	EV_ANNOTATION_INK_OPERATOR_LIGHTEN
 } EvAnnotationInkOperator;
+
+typedef struct {
+    guint32     width;
+    GdkColor    color;
+    EvAnnotationInkOperator ink_operator;
+} EvAnnotationBrush;
 
 /* EvAnnotation */
 GType                ev_annotation_get_type                  (void) G_GNUC_CONST;
@@ -223,13 +231,13 @@ void                ev_annotation_ink_set_widths            (EvAnnotationInk *an
                                                				GArray *widths );
 
 gboolean            ev_annotation_ink_get_operator          (EvAnnotationInk *annot,
-                                                            int *op);
+                                                            EvAnnotationInkOperator *op);
 gboolean            ev_annotation_ink_get_width             (EvAnnotationInk *annot,
                                                             double *width);
 void                ev_annotation_ink_set_width             (EvAnnotationInk *annot,
                                             				double width);
 void                ev_annotation_ink_set_operator          (EvAnnotationInk *annot,
-				                                            int op);
+				                                            EvAnnotationInkOperator op);
 void                ev_annotation_ink_set_paths             (EvAnnotationInk *annot,
                                                				GArray *paths);
 gboolean            ev_annotation_ink_get_paths             (EvAnnotationInk *annot,

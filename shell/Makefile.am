@@ -67,14 +67,20 @@ evince_SOURCES=				\
 	ev-sidebar-layers.h		\
 	ev-sidebar-links.c		\
 	ev-sidebar-links.h		\
+	ev-sidebar-marshal.c	\
+	ev-sidebar-marshal.h	\
 	ev-sidebar-page.c		\
 	ev-sidebar-page.h		\
 	ev-sidebar-thumbnails.c		\
 	ev-sidebar-thumbnails.h		\
 	main.c
 
+NOINST_H_BUILT_FILES = \
+	ev-sidebar-marshal.h
+
 nodist_evince_SOURCES = \
 	ev-resources.c \
+	ev-sidebar-marshal.c \
 	$(NULL)
 
 if ENABLE_DBUS
@@ -131,6 +137,8 @@ evince-icon.o: $(srcdir)/evince-icon.rc $(top_srcdir)/data/evince.ico
 endif
 
 BUILT_SOURCES = \
+	ev-sidebar-marshal.h		\
+	ev-sidebar-marshal.c		\
 	ev-resources.c
 
 if ENABLE_DBUS
@@ -176,6 +184,13 @@ EXTRA_DIST = \
 
 ev-resources.c: evince.gresource.xml Makefile $(shell $(GLIB_COMPILE_RESOURCES) --generate-dependencies --sourcedir=$(srcdir) --sourcedir=$(top_srcdir)/data $(srcdir)/evince.gresource.xml)
 	$(AM_V_GEN) XMLLINT=$(XMLLINT) $(GLIB_COMPILE_RESOURCES) --target $@ --sourcedir=$(srcdir) --sourcedir=$(top_srcdir)/data --generate-source --c-name ev $<
+
+ev-sidebar-marshal.h: $(srcdir)/ev-sidebar-marshal.list
+	$(AM_V_GEN)$(GLIB_GENMARSHAL) --prefix=ev_sidebar_marshal $(srcdir)/ev-sidebar-marshal.list --header --internal > $@
+
+ev-sidebar-marshal.c: $(srcdir)/ev-sidebar-marshal.list
+	$(AM_V_at)echo '#include <config.h>' > ev-sidebar-marshal.c
+	$(AM_V_GEN)$(GLIB_GENMARSHAL) --prefix=ev_sidebar_marshal $(srcdir)/ev-sidebar-marshal.list --header --internal --body >> $@
 
 ev-gdbus-generated.c ev-gdbus-generated.h: ev-gdbus.xml Makefile
 	$(AM_V_GEN) $(GDBUS_CODEGEN) \

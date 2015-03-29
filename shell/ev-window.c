@@ -5901,6 +5901,16 @@ sidebar_annots_begin_annot_add (EvSidebarAnnotations *sidebar_annots,
 }
 
 static void
+sidebar_annots_begin_annot_ink_add (EvSidebarAnnotations *sidebar_annots,
+				EvWindow             *window)
+{
+	ev_view_begin_add_ink_annotation (EV_VIEW (window->priv->view),
+                                        sidebar_annots->brush.color,
+                                        sidebar_annots->brush.width,
+                                        sidebar_annots->brush.ink_operator);
+}
+
+static void
 view_annot_added (EvView       *view,
 		  EvAnnotation *annot,
 		  EvWindow     *window)
@@ -7011,6 +7021,10 @@ ev_window_init (EvWindow *ev_window)
 	g_signal_connect (sidebar_widget,
 			  "annot_activated",
 			  G_CALLBACK (sidebar_annots_annot_activated_cb),
+			  ev_window);
+	g_signal_connect (sidebar_widget,
+			  "begin_annot_ink_add",
+			  G_CALLBACK (sidebar_annots_begin_annot_ink_add),
 			  ev_window);
 	g_signal_connect (sidebar_widget,
 			  "begin_annot_add",

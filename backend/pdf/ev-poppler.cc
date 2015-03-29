@@ -26,6 +26,7 @@
 #include <gtk/gtk.h>
 #include <poppler.h>
 #include <poppler-document.h>
+#include <poppler-object.h>
 #include <poppler-page.h>
 #ifdef HAVE_CAIRO_PDF
 #include <cairo-pdf.h>
@@ -2918,7 +2919,7 @@ ev_annot_from_poppler_annot (PopplerAnnot *poppler_annot,
             }
 
             ev_annotation_ink_set_paths(ev_ink, arr_paths); // adds ref
-			ev_annotation_ink_set_operator(ev_ink, EV_ANNOTATION_INK_OPERATOR_OVER);
+			ev_annotation_ink_set_operator(ev_ink, EV_ANNOTATION_INK_OPERATOR_OVER); // this is not necessary. we need to interpret the stream to get this value
 			ev_annotation_ink_set_width(ev_ink, poppler_annot_border_get_width(border) );
 
 			/* Remove one reference from the paths... */
@@ -3309,7 +3310,11 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
                 // set values
                 poppler_annot = poppler_annot_ink_new (pdf_document->document, &poppler_rect);
                 poppler_annot_set_color (poppler_annot, &poppler_color);
-                poppler_annot_border_set_width (poppler_annot_get_border (poppler_annot), width);
+                {
+                    PopplerAnnotBorder *border = (PopplerAnnotBorder*)poppler_annot_border_bs_new();
+                    poppler_annot_border_set_width (border, width);
+                    poppler_annot_set_border(POPPLER_ANNOT(poppler_annot), border);
+                }
                 poppler_annot_ink_set_ink_list (POPPLER_ANNOT_INK(poppler_annot), poppler_paths);
             }
 
@@ -3318,21 +3323,24 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 
                 // Draw on the surface
                 // save state
-                g_string_append(appStream, "q ");
+                g_string_append(appStream, "q \n");
 
                 // set color:
-                // FIXME: Opacity
-                g_string_append_printf(appStream, "%f %f %f RG ", 
+                g_string_append_printf(appStream, "%f %f %f RG \n", 
                                       poppler_color.red / 65535.0,
                                       poppler_color.green / 65535.0,
-                                      poppler_color.blue / 65535.0,
+                                      poppler_color.blue / 65535.0 /*,
                                       0.5,
-                                      0.5);
+                                      0.5*/);
                 // set line width:
-                g_string_append_printf(appStream, "%f w ",
+                g_string_append_printf(appStream, "%f w \n",
                                       width);
                 // set dash, line cap, line join styles, miter limit
-                g_string_append(appStream, "0 J 0 j [] 0 d 10 M ");
+                g_string_append(appStream, "0 J 0 j [] 0 d 10 M \n");
+
+                // set blend mode
+                // FIXME: set Opacity
+                g_string_append(appStream, "/GS1 gs \n");
 
                 // draw path
                 for (int i=0; i < poppler_annot_paths_get_length(poppler_paths); i++) {
@@ -3357,10 +3365,59 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
                     }
                 }
                 // stroke(), restore()
-                g_string_append(appStream, "S Q ");
+                g_string_append(appStream, "S Q \n");
+                //
+                // TODO: Need to be able to access and manipulate the dictionary associated
+                // with the stream.
+                //
+                // Then you create a graphics state for that blend mode
+                // Then you reference the graphics state
+                
+                // Create the graphics dictionary
+                // Anyone reading this? Anyone reading this?
+                // C++ was invented for a reason. For example, RAII
+                // Pity some idiots are violently opposed to what they don't
+                // know or understand (FUD). I'll murder the idiot who prevented
+                // me from using RAII here. See the stupidity yet?
+                PopplerObject *resources = poppler_object_new();
+                PopplerObject *gstate = poppler_object_new();
+                PopplerObject *brush1 = poppler_object_new();
+                PopplerObject *blendname = poppler_object_new();
+                PopplerXRef* xref = poppler_annot_get_xref(poppler_annot);
+                EvAnnotationInkOperator op = EV_ANNOTATION_INK_OPERATOR_OVER;
+
+                poppler_object_init_dict_xref(resources, xref);
+                poppler_object_init_dict_xref(gstate, xref);
+                poppler_object_init_dict_xref(brush1, xref);
+
+                ev_annotation_ink_get_operator(ink, &op);
+                switch (op) {
+                    case EV_ANNOTATION_INK_OPERATOR_MULTIPLY:
+                        poppler_object_init_name(blendname, "Multiply");
+                        break;
+                    case EV_ANNOTATION_INK_OPERATOR_LIGHTEN:
+                        poppler_object_init_name(blendname, "Lighten");
+                        break;
+                    case EV_ANNOTATION_INK_OPERATOR_DARKEN:
+                        poppler_object_init_name(blendname, "Darken");
+                        break;
+                        // FIXME: other operators
+                    default:
+                        poppler_object_init_name(blendname, "Normal");
+                        break;
+                }
+                poppler_object_dict_set(brush1, "BM", blendname);
+                poppler_object_dict_set(gstate, "GS1", brush1);
+                poppler_object_dict_set(resources, "ExtGState", gstate);
 
                 poppler_annot_set_appearance (poppler_annot, POPPLER_ANNOT_APPEARANCE_NORMAL,
-                                            NULL, appStream->str, &bbox);
+                                            NULL, appStream->str, resources, &bbox);
+
+                
+                //poppler_object_free(blendname);
+                //poppler_object_free(brush1);
+                //poppler_object_free(gstate);
+                //poppler_object_free(resources);
 
                 g_string_free(appStream, TRUE);
             } /* end: appearance */

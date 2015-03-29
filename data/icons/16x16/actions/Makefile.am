@@ -5,6 +5,8 @@ context = actions
 iconsdir = $(themedir)/$(size)/$(context)
 
 icons_DATA = \
+	highlighter.png \
+	red-ink.png \
 	view-page-continuous.png	\
 	view-page-facing.png		\
 	zoom.png                \

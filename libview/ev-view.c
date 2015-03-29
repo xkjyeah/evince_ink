@@ -3286,6 +3286,7 @@ create_ink_annotation (EvView           *view,
             ev_annotation_set_color (EV_ANNOTATION(ink), &view->drawing_data.ink.color);
             ev_annotation_ink_set_width (ink, view->drawing_data.ink.width);
             ev_annotation_ink_set_paths(ink, fpaths);
+            ev_annotation_ink_set_operator(ink, view->drawing_data.ink.ink_operator);
 
             *r_ink = ink;
 
@@ -3440,6 +3441,41 @@ ev_view_focus_annotation (EvView    *view,
 	_ev_view_set_focused_element (view, annot_mapping,
 				     ev_annotation_get_page_index (EV_ANNOTATION (annot_mapping->data)));
 }
+
+void
+ev_view_begin_add_ink_annotation (EvView          *view,
+                    GdkColor              annot_color,
+                    guint32               annot_width,
+                    EvAnnotationInkOperator annot_ink_operator)
+{
+    EvAnnotationType annot_type = EV_ANNOTATION_TYPE_INK;
+
+	if (view->adding_annot)
+		return;
+
+	view->adding_annot = TRUE;
+	view->adding_annot_type = annot_type;
+
+    switch (annot_type) {
+    case EV_ANNOTATION_TYPE_INK: {
+        view->drawing_data.ink.paths = g_array_sized_new(0, 0, sizeof(GArray*), 16);
+        view->drawing_data.ink.color = annot_color;
+        view->drawing_data.ink.width = annot_width;
+        view->drawing_data.ink.ink_operator = annot_ink_operator;
+
+        /* WARNING: if you enable tooltips this will disable your
+         * motion-notify events */
+        gdk_window_set_event_compression(
+            gtk_widget_get_window (GTK_WIDGET(view)), FALSE);
+        }
+        break;
+    default:
+        break;
+    }
+
+	ev_view_set_cursor (view, EV_VIEW_CURSOR_ADD);
+}
+
 
 void
 ev_view_begin_add_annotation (EvView          *view,
@@ -4438,6 +4474,13 @@ draw_partially_drawn_ink (EvView *view,
 
     cairo_set_source_rgba(cr, color.red / 65535.0, color.green / 65535.0, color.blue / 65535.0, 1.0);
     cairo_set_line_width(cr, width * view->scale);
+    switch (view->drawing_data.ink.ink_operator) {
+        case EV_ANNOTATION_INK_OPERATOR_MULTIPLY:
+            cairo_set_operator(cr, CAIRO_OPERATOR_MULTIPLY);
+            break;
+        default:
+            cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    }
     // TODO: set dash, operator (non-compatible with PDF standard), variable width 
 
     for (i=0; i<paths->len; i++) {

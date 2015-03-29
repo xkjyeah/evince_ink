@@ -41,16 +41,20 @@ struct _EvSidebarAnnotations {
 	GtkVBox base_instance;
 
 	EvSidebarAnnotationsPrivate *priv;
+
+    EvAnnotationBrush brush;        /* to send brush details to libview */
 };
 
 struct _EvSidebarAnnotationsClass {
 	GtkVBoxClass base_class;
 
-	void    (* annot_activated)     (EvSidebarAnnotations *sidebar_annots,
+	void    (* annot_activated)         (EvSidebarAnnotations *sidebar_annots,
 					 EvMapping            *mapping);
-	void    (* begin_annot_add)     (EvSidebarAnnotations *sidebar_annots,
+	void    (* begin_annot_add)         (EvSidebarAnnotations *sidebar_annots,
 					 EvAnnotationType      annot_type);
-	void    (* annot_add_cancelled) (EvSidebarAnnotations *sidebar_annots);
+	void    (* begin_annot_ink_add)     (EvSidebarAnnotations *sidebar_annots,
+					 EvAnnotationType      annot_type);
+	void    (* annot_add_cancelled)     (EvSidebarAnnotations *sidebar_annots);
 };
 
 GType      ev_sidebar_annotations_get_type      (void) G_GNUC_CONST;
